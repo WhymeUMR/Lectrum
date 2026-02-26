@@ -30,13 +30,21 @@ exports.QUEUE_POLICIES = {
     }
 };
 exports.IngestionJobSchema = zod_1.z.object({
+    jobId: zod_1.z.string().min(1),
     lectureId: zod_1.z.string().min(1),
+    sourceType: zod_1.z.enum(['upload', 'url']),
     sourceUrl: zod_1.z.string().url().optional(),
     filename: zod_1.z.string().min(1),
-    uploadedAt: zod_1.z.string().datetime()
+    mimeType: zod_1.z.string().min(1).optional(),
+    requestedLanguage: zod_1.z.string().default('ru'),
+    uploadedAt: zod_1.z.string().datetime(),
+    fileBase64: zod_1.z.string().optional()
 });
 exports.TranscriptionJobSchema = zod_1.z.object({
+    jobId: zod_1.z.string().min(1),
     lectureId: zod_1.z.string().min(1),
+    sourceType: zod_1.z.enum(['upload', 'url']),
+    sourceUrl: zod_1.z.string().url().optional(),
     storagePath: zod_1.z.string().min(1),
     language: zod_1.z.string().default('ru')
 });

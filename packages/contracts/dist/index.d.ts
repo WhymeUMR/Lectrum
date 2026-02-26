@@ -53,32 +53,56 @@ export declare const QUEUE_POLICIES: {
     };
 };
 export declare const IngestionJobSchema: z.ZodObject<{
+    jobId: z.ZodString;
     lectureId: z.ZodString;
+    sourceType: z.ZodEnum<["upload", "url"]>;
     sourceUrl: z.ZodOptional<z.ZodString>;
     filename: z.ZodString;
+    mimeType: z.ZodOptional<z.ZodString>;
+    requestedLanguage: z.ZodDefault<z.ZodString>;
     uploadedAt: z.ZodString;
+    fileBase64: z.ZodOptional<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
+    jobId: string;
     lectureId: string;
+    sourceType: "upload" | "url";
     filename: string;
+    requestedLanguage: string;
     uploadedAt: string;
     sourceUrl?: string | undefined;
+    mimeType?: string | undefined;
+    fileBase64?: string | undefined;
 }, {
+    jobId: string;
     lectureId: string;
+    sourceType: "upload" | "url";
     filename: string;
     uploadedAt: string;
     sourceUrl?: string | undefined;
+    mimeType?: string | undefined;
+    requestedLanguage?: string | undefined;
+    fileBase64?: string | undefined;
 }>;
 export declare const TranscriptionJobSchema: z.ZodObject<{
+    jobId: z.ZodString;
     lectureId: z.ZodString;
+    sourceType: z.ZodEnum<["upload", "url"]>;
+    sourceUrl: z.ZodOptional<z.ZodString>;
     storagePath: z.ZodString;
     language: z.ZodDefault<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
+    jobId: string;
     lectureId: string;
+    sourceType: "upload" | "url";
     storagePath: string;
     language: string;
+    sourceUrl?: string | undefined;
 }, {
+    jobId: string;
     lectureId: string;
+    sourceType: "upload" | "url";
     storagePath: string;
+    sourceUrl?: string | undefined;
     language?: string | undefined;
 }>;
 export declare const FlashcardGenerationJobSchema: z.ZodObject<{

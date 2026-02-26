@@ -11,29 +11,62 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 require("reflect-metadata");
+const node_path_1 = __importDefault(require("node:path"));
 const common_1 = require("@nestjs/common");
 const core_1 = require("@nestjs/core");
 const bullmq_1 = require("bullmq");
 const contracts_1 = require("@lecture/contracts");
 const config_1 = require("@lecture/config");
+const pipeline_1 = require("@lecture/pipeline");
 let TranscriptionProcessor = class TranscriptionProcessor {
     constructor(env) {
         this.env = env;
+        if (!env.DATABASE_URL) {
+            throw new Error('DATABASE_URL is required for transcription-worker');
+        }
+        this.repo = pipeline_1.PipelineRepository.fromDatabaseUrl(env.DATABASE_URL);
     }
-    onModuleInit() {
+    async onModuleInit() {
+        await this.repo.ensureSchema();
         const redis = (0, config_1.buildRedisConnection)(this.env);
         this.flashcardQueue = new bullmq_1.Queue(contracts_1.QUEUE_NAMES.flashcard, {
             ...redis,
             defaultJobOptions: contracts_1.QUEUE_POLICIES.flashcard
         });
         this.worker = new bullmq_1.Worker(contracts_1.QUEUE_NAMES.transcription, async (job) => {
-            await this.flashcardQueue?.add('generate', {
-                lectureId: job.data.lectureId,
-                transcriptText: `Transcript for ${job.data.lectureId}`,
-                maxCards: 20
-            });
+            const payload = job.data;
+            try {
+                await this.repo.updateStatus(payload.jobId, 'TRANSCRIBING');
+                const transcriptText = [
+                    `lectureId=${payload.lectureId}`,
+                    `sourceType=${payload.sourceType}`,
+                    `language=${payload.language}`,
+                    `storagePath=${payload.storagePath}`,
+                    payload.sourceUrl ? `sourceUrl=${payload.sourceUrl}` : '',
+                    'transcript=This is a placeholder transcript produced by the MVP transcription worker.'
+                ]
+                    .filter(Boolean)
+                    .join('\n');
+                const transcriptRelativePath = node_path_1.default.join('transcripts', `${payload.lectureId}.txt`);
+                await (0, pipeline_1.writeArtifact)(this.env.ARTIFACTS_DIR, transcriptRelativePath, transcriptText);
+                await this.repo.saveTranscript(payload.jobId, transcriptRelativePath, transcriptText);
+                await this.repo.updateStatus(payload.jobId, 'COMPLETED');
+                await this.flashcardQueue?.add('generate', {
+                    lectureId: payload.lectureId,
+                    transcriptText,
+                    maxCards: 20
+                });
+            }
+            catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                await this.repo.setError(payload.jobId, 'TRANSCRIPTION_ERROR', message);
+                throw error;
+            }
         }, {
             ...redis,
             removeOnComplete: contracts_1.QUEUE_POLICIES.transcription.removeOnComplete,
@@ -43,6 +76,7 @@ let TranscriptionProcessor = class TranscriptionProcessor {
     async onModuleDestroy() {
         await this.worker?.close();
         await this.flashcardQueue?.close();
+        await this.repo.close();
     }
 };
 TranscriptionProcessor = __decorate([

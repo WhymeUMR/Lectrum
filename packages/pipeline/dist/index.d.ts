@@ -1,0 +1,44 @@
+import { Pool } from 'pg';
+export type JobStatus = 'QUEUED' | 'INGESTING' | 'INGESTED' | 'TRANSCRIBING' | 'COMPLETED' | 'FAILED';
+export type SourceType = 'upload' | 'url';
+export interface CreateJobInput {
+    jobId: string;
+    lectureId: string;
+    sourceType: SourceType;
+    filename: string;
+    mimeType?: string;
+    sourceUrl?: string;
+    requestedLanguage: string;
+}
+export interface JobRecord {
+    jobId: string;
+    lectureId: string;
+    status: JobStatus;
+    sourceType: SourceType;
+    filename: string;
+    mimeType: string | null;
+    sourceUrl: string | null;
+    storagePath: string | null;
+    transcriptPath: string | null;
+    transcriptText: string | null;
+    errorCode: string | null;
+    errorMessage: string | null;
+    requestedLanguage: string;
+    createdAt: string;
+    updatedAt: string;
+}
+export declare class PipelineRepository {
+    private readonly pool;
+    constructor(pool: Pool);
+    static fromDatabaseUrl(databaseUrl: string): PipelineRepository;
+    ensureSchema(): Promise<void>;
+    close(): Promise<void>;
+    createJob(input: CreateJobInput): Promise<void>;
+    updateStatus(jobId: string, status: JobStatus): Promise<void>;
+    setSourceStoragePath(jobId: string, storagePath: string): Promise<void>;
+    saveTranscript(jobId: string, transcriptPath: string, transcriptText: string): Promise<void>;
+    setError(jobId: string, code: string, message: string): Promise<void>;
+    getJob(jobId: string): Promise<JobRecord | null>;
+}
+export declare function writeArtifact(artifactsRoot: string, relativePath: string, content: Buffer | string): Promise<string>;
+export declare function decodeBase64Payload(payload: string): Buffer;

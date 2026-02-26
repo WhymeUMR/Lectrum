@@ -12,6 +12,7 @@ declare const EnvSchema: z.ZodObject<{
     REDIS_MAX_RETRIES_PER_REQUEST: z.ZodDefault<z.ZodNumber>;
     REDIS_ENABLE_TLS: z.ZodDefault<z.ZodEffects<z.ZodBoolean, boolean, unknown>>;
     DATABASE_URL: z.ZodOptional<z.ZodString>;
+    ARTIFACTS_DIR: z.ZodDefault<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
     APP_ENV: "local" | "staging" | "production";
     NODE_ENV: "production" | "development" | "test";
@@ -23,6 +24,7 @@ declare const EnvSchema: z.ZodObject<{
     REDIS_CONNECT_TIMEOUT_MS: number;
     REDIS_MAX_RETRIES_PER_REQUEST: number;
     REDIS_ENABLE_TLS: boolean;
+    ARTIFACTS_DIR: string;
     DATABASE_URL?: string | undefined;
 }, {
     SERVICE_NAME: string;
@@ -36,6 +38,7 @@ declare const EnvSchema: z.ZodObject<{
     REDIS_MAX_RETRIES_PER_REQUEST?: number | undefined;
     REDIS_ENABLE_TLS?: unknown;
     DATABASE_URL?: string | undefined;
+    ARTIFACTS_DIR?: string | undefined;
 }>;
 export type AppEnv = z.infer<typeof EnvSchema>;
 export declare const APP_ENV: unique symbol;

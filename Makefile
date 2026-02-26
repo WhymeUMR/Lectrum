@@ -1,4 +1,4 @@
-.PHONY: up down logs health test build preflight-local preflight-staging preflight-production
+.PHONY: up down logs health test build preflight-local preflight-staging preflight-production smoke-ingestion
 
 up:
 	./scripts/compose.sh local up -d --build
@@ -28,3 +28,6 @@ preflight-staging:
 
 preflight-production:
 	./scripts/check-config.sh production
+
+smoke-ingestion:
+	./scripts/smoke-ingestion.sh

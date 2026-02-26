@@ -18,7 +18,8 @@
     "bullmq": "^5.34.10",
     "ioredis": "^5.4.2",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "@lecture/pipeline": "file:../../packages/pipeline"
   },
   "devDependencies": {
     "@types/node": "^22.10.6",

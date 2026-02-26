@@ -10,9 +10,19 @@
 - `redis`
 - `postgres`
 
+## Что реализовано на шаге 5
+- API endpoint для старта обработки лекции: `POST /api/v1/lectures/ingest`
+- Хранение статусов задачи в Postgres (`QUEUED -> INGESTING -> INGESTED -> TRANSCRIBING -> COMPLETED/FAILED`)
+- Постановка задач транскрибации в BullMQ
+- Сохранение исходного артефакта и транскрипта в `ARTIFACTS_DIR`
+- API статуса и результата:
+  - `GET /api/v1/jobs/:jobId`
+  - `GET /api/v1/jobs/:jobId/result`
+
 ## Общие пакеты
 - `@lecture/contracts` — versioned queue names + payload schemas + queue retention policies
 - `@lecture/config` — общий типизированный config module и Redis connection factory
+- `@lecture/pipeline` — Postgres repository + artifact helpers
 
 ## Профили окружений
 - `env/.env.local`

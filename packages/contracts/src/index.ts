@@ -32,14 +32,22 @@ export const QUEUE_POLICIES = {
 } as const;
 
 export const IngestionJobSchema = z.object({
+  jobId: z.string().min(1),
   lectureId: z.string().min(1),
+  sourceType: z.enum(['upload', 'url']),
   sourceUrl: z.string().url().optional(),
   filename: z.string().min(1),
-  uploadedAt: z.string().datetime()
+  mimeType: z.string().min(1).optional(),
+  requestedLanguage: z.string().default('ru'),
+  uploadedAt: z.string().datetime(),
+  fileBase64: z.string().optional()
 });
 
 export const TranscriptionJobSchema = z.object({
+  jobId: z.string().min(1),
   lectureId: z.string().min(1),
+  sourceType: z.enum(['upload', 'url']),
+  sourceUrl: z.string().url().optional(),
   storagePath: z.string().min(1),
   language: z.string().default('ru')
 });

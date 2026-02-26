@@ -11,10 +11,9 @@ const EnvSchema = z.object({
   REDIS_DB: z.coerce.number().int().min(0).max(15).default(0),
   REDIS_CONNECT_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
   REDIS_MAX_RETRIES_PER_REQUEST: z.coerce.number().int().min(1).max(20).default(3),
-  REDIS_ENABLE_TLS: z
-    .preprocess((v) => v === 'true' || v === true, z.boolean())
-    .default(false),
-  DATABASE_URL: z.string().min(1).optional()
+  REDIS_ENABLE_TLS: z.preprocess((v) => v === 'true' || v === true, z.boolean()).default(false),
+  DATABASE_URL: z.string().min(1).optional(),
+  ARTIFACTS_DIR: z.string().min(1).default('/app/storage')
 });
 
 export type AppEnv = z.infer<typeof EnvSchema>;
@@ -32,7 +31,8 @@ function loadEnv(serviceName: string): AppEnv {
     REDIS_CONNECT_TIMEOUT_MS: process.env.REDIS_CONNECT_TIMEOUT_MS,
     REDIS_MAX_RETRIES_PER_REQUEST: process.env.REDIS_MAX_RETRIES_PER_REQUEST,
     REDIS_ENABLE_TLS: process.env.REDIS_ENABLE_TLS,
-    DATABASE_URL: process.env.DATABASE_URL
+    DATABASE_URL: process.env.DATABASE_URL,
+    ARTIFACTS_DIR: process.env.ARTIFACTS_DIR
   });
 }
 
