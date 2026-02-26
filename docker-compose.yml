@@ -1,0 +1,128 @@
+name: lecture-to-flashcards
+
+x-common-build: &common-build
+  context: .
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-lecture_flashcards}
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-lecture_flashcards}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api-gateway:
+    build:
+      <<: *common-build
+      dockerfile: services/api-gateway/Dockerfile
+      args:
+        SERVICE_PATH: services/api-gateway
+    environment:
+      SERVICE_NAME: api-gateway
+      PORT: 3000
+      NODE_ENV: ${NODE_ENV:-development}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      DATABASE_URL: ${DATABASE_URL:-postgres://app:app@postgres:5432/lecture_flashcards}
+    ports:
+      - "3100:3000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health | grep -q 'ok'"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  ingestion-service:
+    build:
+      <<: *common-build
+      dockerfile: services/ingestion-service/Dockerfile
+      args:
+        SERVICE_PATH: services/ingestion-service
+    environment:
+      SERVICE_NAME: ingestion-service
+      PORT: 3000
+      NODE_ENV: ${NODE_ENV:-development}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      DATABASE_URL: ${DATABASE_URL:-postgres://app:app@postgres:5432/lecture_flashcards}
+    ports:
+      - "3101:3000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health | grep -q 'ok'"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  transcription-worker:
+    build:
+      <<: *common-build
+      dockerfile: services/transcription-worker/Dockerfile
+      args:
+        SERVICE_PATH: services/transcription-worker
+    environment:
+      SERVICE_NAME: transcription-worker
+      PORT: 3000
+      NODE_ENV: ${NODE_ENV:-development}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+    ports:
+      - "3102:3000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health | grep -q 'ok'"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  flashcard-worker:
+    build:
+      <<: *common-build
+      dockerfile: services/flashcard-worker/Dockerfile
+      args:
+        SERVICE_PATH: services/flashcard-worker
+    environment:
+      SERVICE_NAME: flashcard-worker
+      PORT: 3000
+      NODE_ENV: ${NODE_ENV:-development}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+    ports:
+      - "3103:3000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health | grep -q 'ok'"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres_data:
+  redis_data:
