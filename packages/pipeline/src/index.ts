@@ -119,7 +119,11 @@ export class PipelineRepository {
     );
   }
 
-  async saveTranscript(jobId: string, transcriptPath: string, transcriptText: string): Promise<void> {
+  async saveTranscript(
+    jobId: string,
+    transcriptPath: string,
+    transcriptText: string
+  ): Promise<void> {
     await this.pool.query(
       `
       UPDATE lecture_jobs

@@ -8,6 +8,19 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present"
+    "test": "npm run test --workspaces --if-present",
+    "test:gateway": "tsx --tsconfig services/api-gateway/tsconfig.json --test services/api-gateway/src/**/*.spec.ts",
+    "format": "prettier --write \"**/*.{ts,cjs,js}\"",
+    "lint": "eslint \"**/*.{ts,cjs,js}\""
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@typescript-eslint/eslint-plugin": "^8.56.1",
+    "@typescript-eslint/parser": "^8.56.1",
+    "eslint": "^10.0.2",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.5",
+    "prettier": "^3.8.1",
+    "tsx": "^4.21.0"
   }
 }

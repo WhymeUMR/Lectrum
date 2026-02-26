@@ -42,7 +42,11 @@ class IngestionProcessor implements OnModuleInit, OnModuleDestroy {
             }
             const safeName = payload.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
             relativeStoragePath = path.join('raw', `${payload.lectureId}_${safeName}`);
-            await writeArtifact(this.env.ARTIFACTS_DIR, relativeStoragePath, decodeBase64Payload(payload.fileBase64));
+            await writeArtifact(
+              this.env.ARTIFACTS_DIR,
+              relativeStoragePath,
+              decodeBase64Payload(payload.fileBase64)
+            );
           } else {
             if (!payload.sourceUrl) {
               throw new Error('Missing sourceUrl for url sourceType');

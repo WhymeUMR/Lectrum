@@ -23,24 +23,25 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-app}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
     ports:
-      - "15432:5432"
+      - '15432:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-lecture_flashcards}"]
+      test:
+        ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-lecture_flashcards}']
       interval: 5s
       timeout: 3s
       retries: 20
 
   redis:
     image: redis:7-alpine
-    command: ["redis-server", "--appendonly", "yes"]
+    command: ['redis-server', '--appendonly', 'yes']
     ports:
-      - "16379:6379"
+      - '16379:6379'
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
       timeout: 3s
       retries: 20
@@ -56,7 +57,7 @@ services:
       SERVICE_NAME: api-gateway
       PORT: 3000
     ports:
-      - "3100:3000"
+      - '3100:3000'
     volumes:
       - artifacts_data:/app/storage
     depends_on:
@@ -65,7 +66,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health | grep -q 'ok'"]
+      test: ['CMD-SHELL', "wget -qO- http://127.0.0.1:3000/health | grep -q 'ok'"]
       interval: 10s
       timeout: 3s
       retries: 10
@@ -81,7 +82,7 @@ services:
       SERVICE_NAME: ingestion-service
       PORT: 3000
     ports:
-      - "3101:3000"
+      - '3101:3000'
     volumes:
       - artifacts_data:/app/storage
     depends_on:
@@ -90,7 +91,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health | grep -q 'ok'"]
+      test: ['CMD-SHELL', "wget -qO- http://127.0.0.1:3000/health | grep -q 'ok'"]
       interval: 10s
       timeout: 3s
       retries: 10
@@ -106,7 +107,7 @@ services:
       SERVICE_NAME: transcription-worker
       PORT: 3000
     ports:
-      - "3102:3000"
+      - '3102:3000'
     volumes:
       - artifacts_data:/app/storage
     depends_on:
@@ -115,7 +116,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health | grep -q 'ok'"]
+      test: ['CMD-SHELL', "wget -qO- http://127.0.0.1:3000/health | grep -q 'ok'"]
       interval: 10s
       timeout: 3s
       retries: 10
@@ -131,7 +132,7 @@ services:
       SERVICE_NAME: flashcard-worker
       PORT: 3000
     ports:
-      - "3103:3000"
+      - '3103:3000'
     volumes:
       - artifacts_data:/app/storage
     depends_on:
@@ -140,7 +141,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health | grep -q 'ok'"]
+      test: ['CMD-SHELL', "wget -qO- http://127.0.0.1:3000/health | grep -q 'ok'"]
       interval: 10s
       timeout: 3s
       retries: 10
