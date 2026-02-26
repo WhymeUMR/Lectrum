@@ -1,14 +1,15 @@
 import 'reflect-metadata';
-import { Controller, Get, Inject, Module, Post, Body } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Module, Post } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Queue } from 'bullmq';
 import {
   FlashcardGenerationJobSchema,
   IngestionJobSchema,
   QUEUE_NAMES,
+  QUEUE_POLICIES,
   TranscriptionJobSchema
 } from '@lecture/contracts';
-import { APP_ENV, AppEnv, SharedConfigModule } from '@lecture/config';
+import { APP_ENV, AppEnv, SharedConfigModule, buildRedisConnection } from '@lecture/config';
 
 class QueueService {
   private readonly ingestionQueue: Queue;
@@ -16,10 +17,19 @@ class QueueService {
   private readonly flashcardQueue: Queue;
 
   constructor(@Inject(APP_ENV) private readonly env: AppEnv) {
-    const connection = { connection: { url: env.REDIS_URL } };
-    this.ingestionQueue = new Queue(QUEUE_NAMES.ingestion, connection);
-    this.transcriptionQueue = new Queue(QUEUE_NAMES.transcription, connection);
-    this.flashcardQueue = new Queue(QUEUE_NAMES.flashcard, connection);
+    const redis = buildRedisConnection(env);
+    this.ingestionQueue = new Queue(QUEUE_NAMES.ingestion, {
+      ...redis,
+      defaultJobOptions: QUEUE_POLICIES.ingestion
+    });
+    this.transcriptionQueue = new Queue(QUEUE_NAMES.transcription, {
+      ...redis,
+      defaultJobOptions: QUEUE_POLICIES.transcription
+    });
+    this.flashcardQueue = new Queue(QUEUE_NAMES.flashcard, {
+      ...redis,
+      defaultJobOptions: QUEUE_POLICIES.flashcard
+    });
   }
 
   async enqueueIngestion(payload: unknown): Promise<void> {
@@ -58,6 +68,8 @@ class AppController {
     return {
       status: 'ok',
       service: this.env.SERVICE_NAME,
+      appEnv: this.env.APP_ENV,
+      queuePrefix: this.env.REDIS_QUEUE_PREFIX,
       contractVersion: 'v1'
     };
   }
@@ -106,7 +118,6 @@ async function bootstrap() {
 }
 
 bootstrap().catch((err) => {
-  // eslint-disable-next-line no-console
   console.error(err);
   process.exit(1);
 });

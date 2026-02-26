@@ -21,10 +21,19 @@ const config_1 = require("@lecture/config");
 let QueueService = class QueueService {
     constructor(env) {
         this.env = env;
-        const connection = { connection: { url: env.REDIS_URL } };
-        this.ingestionQueue = new bullmq_1.Queue(contracts_1.QUEUE_NAMES.ingestion, connection);
-        this.transcriptionQueue = new bullmq_1.Queue(contracts_1.QUEUE_NAMES.transcription, connection);
-        this.flashcardQueue = new bullmq_1.Queue(contracts_1.QUEUE_NAMES.flashcard, connection);
+        const redis = (0, config_1.buildRedisConnection)(env);
+        this.ingestionQueue = new bullmq_1.Queue(contracts_1.QUEUE_NAMES.ingestion, {
+            ...redis,
+            defaultJobOptions: contracts_1.QUEUE_POLICIES.ingestion
+        });
+        this.transcriptionQueue = new bullmq_1.Queue(contracts_1.QUEUE_NAMES.transcription, {
+            ...redis,
+            defaultJobOptions: contracts_1.QUEUE_POLICIES.transcription
+        });
+        this.flashcardQueue = new bullmq_1.Queue(contracts_1.QUEUE_NAMES.flashcard, {
+            ...redis,
+            defaultJobOptions: contracts_1.QUEUE_POLICIES.flashcard
+        });
     }
     async enqueueIngestion(payload) {
         const parsed = contracts_1.IngestionJobSchema.parse(payload);
@@ -59,6 +68,8 @@ let AppController = class AppController {
         return {
             status: 'ok',
             service: this.env.SERVICE_NAME,
+            appEnv: this.env.APP_ENV,
+            queuePrefix: this.env.REDIS_QUEUE_PREFIX,
             contractVersion: 'v1'
         };
     }
@@ -136,7 +147,6 @@ async function bootstrap() {
     });
 }
 bootstrap().catch((err) => {
-    // eslint-disable-next-line no-console
     console.error(err);
     process.exit(1);
 });

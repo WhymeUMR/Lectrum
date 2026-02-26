@@ -3,6 +3,17 @@ name: lecture-to-flashcards
 x-common-build: &common-build
   context: .
 
+x-common-env: &common-env
+  APP_ENV: ${APP_ENV:-local}
+  NODE_ENV: ${NODE_ENV:-development}
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+  REDIS_QUEUE_PREFIX: ${REDIS_QUEUE_PREFIX:-lec.local}
+  REDIS_DB: ${REDIS_DB:-0}
+  REDIS_CONNECT_TIMEOUT_MS: ${REDIS_CONNECT_TIMEOUT_MS:-5000}
+  REDIS_MAX_RETRIES_PER_REQUEST: ${REDIS_MAX_RETRIES_PER_REQUEST:-3}
+  REDIS_ENABLE_TLS: ${REDIS_ENABLE_TLS:-false}
+  DATABASE_URL: ${DATABASE_URL:-postgres://app:app@postgres:5432/lecture_flashcards}
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -10,6 +21,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-lecture_flashcards}
       POSTGRES_USER: ${POSTGRES_USER:-app}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
+    ports:
+      - "15432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -21,6 +34,8 @@ services:
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "16379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -36,11 +51,9 @@ services:
       args:
         SERVICE_PATH: services/api-gateway
     environment:
+      <<: *common-env
       SERVICE_NAME: api-gateway
       PORT: 3000
-      NODE_ENV: ${NODE_ENV:-development}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
-      DATABASE_URL: ${DATABASE_URL:-postgres://app:app@postgres:5432/lecture_flashcards}
     ports:
       - "3100:3000"
     depends_on:
@@ -49,7 +62,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health | grep -q 'ok'"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health | grep -q 'ok'"]
       interval: 10s
       timeout: 3s
       retries: 10
@@ -61,11 +74,9 @@ services:
       args:
         SERVICE_PATH: services/ingestion-service
     environment:
+      <<: *common-env
       SERVICE_NAME: ingestion-service
       PORT: 3000
-      NODE_ENV: ${NODE_ENV:-development}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
-      DATABASE_URL: ${DATABASE_URL:-postgres://app:app@postgres:5432/lecture_flashcards}
     ports:
       - "3101:3000"
     depends_on:
@@ -74,7 +85,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health | grep -q 'ok'"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health | grep -q 'ok'"]
       interval: 10s
       timeout: 3s
       retries: 10
@@ -86,17 +97,16 @@ services:
       args:
         SERVICE_PATH: services/transcription-worker
     environment:
+      <<: *common-env
       SERVICE_NAME: transcription-worker
       PORT: 3000
-      NODE_ENV: ${NODE_ENV:-development}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
     ports:
       - "3102:3000"
     depends_on:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health | grep -q 'ok'"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health | grep -q 'ok'"]
       interval: 10s
       timeout: 3s
       retries: 10
@@ -108,17 +118,16 @@ services:
       args:
         SERVICE_PATH: services/flashcard-worker
     environment:
+      <<: *common-env
       SERVICE_NAME: flashcard-worker
       PORT: 3000
-      NODE_ENV: ${NODE_ENV:-development}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
     ports:
       - "3103:3000"
     depends_on:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health | grep -q 'ok'"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health | grep -q 'ok'"]
       interval: 10s
       timeout: 3s
       retries: 10

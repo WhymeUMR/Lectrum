@@ -23,15 +23,22 @@ let TranscriptionProcessor = class TranscriptionProcessor {
         this.env = env;
     }
     onModuleInit() {
-        const connection = { connection: { url: this.env.REDIS_URL } };
-        this.flashcardQueue = new bullmq_1.Queue(contracts_1.QUEUE_NAMES.flashcard, connection);
+        const redis = (0, config_1.buildRedisConnection)(this.env);
+        this.flashcardQueue = new bullmq_1.Queue(contracts_1.QUEUE_NAMES.flashcard, {
+            ...redis,
+            defaultJobOptions: contracts_1.QUEUE_POLICIES.flashcard
+        });
         this.worker = new bullmq_1.Worker(contracts_1.QUEUE_NAMES.transcription, async (job) => {
             await this.flashcardQueue?.add('generate', {
                 lectureId: job.data.lectureId,
                 transcriptText: `Transcript for ${job.data.lectureId}`,
                 maxCards: 20
             });
-        }, connection);
+        }, {
+            ...redis,
+            removeOnComplete: contracts_1.QUEUE_POLICIES.transcription.removeOnComplete,
+            removeOnFail: contracts_1.QUEUE_POLICIES.transcription.removeOnFail
+        });
     }
     async onModuleDestroy() {
         await this.worker?.close();
@@ -47,7 +54,13 @@ let AppController = class AppController {
         this.env = env;
     }
     health() {
-        return { status: 'ok', service: this.env.SERVICE_NAME, queue: contracts_1.QUEUE_NAMES.transcription };
+        return {
+            status: 'ok',
+            service: this.env.SERVICE_NAME,
+            appEnv: this.env.APP_ENV,
+            queue: contracts_1.QUEUE_NAMES.transcription,
+            queuePrefix: this.env.REDIS_QUEUE_PREFIX
+        };
     }
     ready() {
         return { status: 'ready' };

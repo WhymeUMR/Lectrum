@@ -5,6 +5,53 @@ export declare const QUEUE_NAMES: {
     readonly transcription: "lec.v1.transcription";
     readonly flashcard: "lec.v1.flashcard";
 };
+export declare const QUEUE_POLICIES: {
+    readonly ingestion: {
+        readonly removeOnComplete: {
+            readonly age: number;
+            readonly count: 2000;
+        };
+        readonly removeOnFail: {
+            readonly age: number;
+            readonly count: 5000;
+        };
+        readonly attempts: 5;
+        readonly backoff: {
+            readonly type: "exponential";
+            readonly delay: 2000;
+        };
+    };
+    readonly transcription: {
+        readonly removeOnComplete: {
+            readonly age: number;
+            readonly count: 2000;
+        };
+        readonly removeOnFail: {
+            readonly age: number;
+            readonly count: 5000;
+        };
+        readonly attempts: 4;
+        readonly backoff: {
+            readonly type: "exponential";
+            readonly delay: 3000;
+        };
+    };
+    readonly flashcard: {
+        readonly removeOnComplete: {
+            readonly age: number;
+            readonly count: 2000;
+        };
+        readonly removeOnFail: {
+            readonly age: number;
+            readonly count: 5000;
+        };
+        readonly attempts: 3;
+        readonly backoff: {
+            readonly type: "exponential";
+            readonly delay: 4000;
+        };
+    };
+};
 export declare const IngestionJobSchema: z.ZodObject<{
     lectureId: z.ZodString;
     sourceUrl: z.ZodOptional<z.ZodString>;

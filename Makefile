@@ -1,13 +1,13 @@
-.PHONY: up down logs health test build
+.PHONY: up down logs health test build preflight-local preflight-staging preflight-production
 
 up:
-	docker compose up -d --build
+	./scripts/compose.sh local up -d --build
 
 down:
-	docker compose down -v
+	./scripts/compose.sh local down -v
 
 logs:
-	docker compose logs -f --tail=100
+	./scripts/compose.sh local logs -f --tail=100
 
 health:
 	./scripts/healthcheck.sh
@@ -19,3 +19,12 @@ build:
 test:
 	npm ci
 	npm run test
+
+preflight-local:
+	./scripts/check-config.sh local
+
+preflight-staging:
+	./scripts/check-config.sh staging
+
+preflight-production:
+	./scripts/check-config.sh production

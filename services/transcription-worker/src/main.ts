@@ -2,8 +2,8 @@ import 'reflect-metadata';
 import { Controller, Get, Inject, Module, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Job, Queue, Worker } from 'bullmq';
-import { QUEUE_NAMES, TranscriptionJobPayload } from '@lecture/contracts';
-import { APP_ENV, AppEnv, SharedConfigModule } from '@lecture/config';
+import { QUEUE_NAMES, QUEUE_POLICIES, TranscriptionJobPayload } from '@lecture/contracts';
+import { APP_ENV, AppEnv, SharedConfigModule, buildRedisConnection } from '@lecture/config';
 
 class TranscriptionProcessor implements OnModuleInit, OnModuleDestroy {
   private worker?: Worker;
@@ -12,8 +12,11 @@ class TranscriptionProcessor implements OnModuleInit, OnModuleDestroy {
   constructor(@Inject(APP_ENV) private readonly env: AppEnv) {}
 
   onModuleInit() {
-    const connection = { connection: { url: this.env.REDIS_URL } };
-    this.flashcardQueue = new Queue(QUEUE_NAMES.flashcard, connection);
+    const redis = buildRedisConnection(this.env);
+    this.flashcardQueue = new Queue(QUEUE_NAMES.flashcard, {
+      ...redis,
+      defaultJobOptions: QUEUE_POLICIES.flashcard
+    });
     this.worker = new Worker(
       QUEUE_NAMES.transcription,
       async (job: Job<TranscriptionJobPayload>) => {
@@ -23,7 +26,11 @@ class TranscriptionProcessor implements OnModuleInit, OnModuleDestroy {
           maxCards: 20
         });
       },
-      connection
+      {
+        ...redis,
+        removeOnComplete: QUEUE_POLICIES.transcription.removeOnComplete,
+        removeOnFail: QUEUE_POLICIES.transcription.removeOnFail
+      }
     );
   }
 
@@ -39,7 +46,13 @@ class AppController {
 
   @Get('/health')
   health() {
-    return { status: 'ok', service: this.env.SERVICE_NAME, queue: QUEUE_NAMES.transcription };
+    return {
+      status: 'ok',
+      service: this.env.SERVICE_NAME,
+      appEnv: this.env.APP_ENV,
+      queue: QUEUE_NAMES.transcription,
+      queuePrefix: this.env.REDIS_QUEUE_PREFIX
+    };
   }
 
   @Get('/ready')

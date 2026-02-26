@@ -8,6 +8,29 @@ export const QUEUE_NAMES = {
   flashcard: `lec.${JOB_CONTRACT_VERSION}.flashcard`
 } as const;
 
+const defaultRetention = {
+  removeOnComplete: { age: 24 * 60 * 60, count: 2000 },
+  removeOnFail: { age: 7 * 24 * 60 * 60, count: 5000 }
+} as const;
+
+export const QUEUE_POLICIES = {
+  ingestion: {
+    attempts: 5,
+    backoff: { type: 'exponential' as const, delay: 2000 },
+    ...defaultRetention
+  },
+  transcription: {
+    attempts: 4,
+    backoff: { type: 'exponential' as const, delay: 3000 },
+    ...defaultRetention
+  },
+  flashcard: {
+    attempts: 3,
+    backoff: { type: 'exponential' as const, delay: 4000 },
+    ...defaultRetention
+  }
+} as const;
+
 export const IngestionJobSchema = z.object({
   lectureId: z.string().min(1),
   sourceUrl: z.string().url().optional(),

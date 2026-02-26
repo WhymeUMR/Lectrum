@@ -2,8 +2,8 @@ import 'reflect-metadata';
 import { Controller, Get, Inject, Module, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Job, Worker } from 'bullmq';
-import { FlashcardGenerationJobPayload, QUEUE_NAMES } from '@lecture/contracts';
-import { APP_ENV, AppEnv, SharedConfigModule } from '@lecture/config';
+import { FlashcardGenerationJobPayload, QUEUE_NAMES, QUEUE_POLICIES } from '@lecture/contracts';
+import { APP_ENV, AppEnv, SharedConfigModule, buildRedisConnection } from '@lecture/config';
 
 class FlashcardProcessor implements OnModuleInit, OnModuleDestroy {
   private worker?: Worker;
@@ -11,13 +11,17 @@ class FlashcardProcessor implements OnModuleInit, OnModuleDestroy {
   constructor(@Inject(APP_ENV) private readonly env: AppEnv) {}
 
   onModuleInit() {
-    const connection = { connection: { url: this.env.REDIS_URL } };
+    const redis = buildRedisConnection(this.env);
     this.worker = new Worker(
       QUEUE_NAMES.flashcard,
       async (job: Job<FlashcardGenerationJobPayload>) => {
         console.log(`Generated ${job.data.maxCards} cards for lecture ${job.data.lectureId}`);
       },
-      connection
+      {
+        ...redis,
+        removeOnComplete: QUEUE_POLICIES.flashcard.removeOnComplete,
+        removeOnFail: QUEUE_POLICIES.flashcard.removeOnFail
+      }
     );
   }
 
@@ -32,7 +36,13 @@ class AppController {
 
   @Get('/health')
   health() {
-    return { status: 'ok', service: this.env.SERVICE_NAME, queue: QUEUE_NAMES.flashcard };
+    return {
+      status: 'ok',
+      service: this.env.SERVICE_NAME,
+      appEnv: this.env.APP_ENV,
+      queue: QUEUE_NAMES.flashcard,
+      queuePrefix: this.env.REDIS_QUEUE_PREFIX
+    };
   }
 
   @Get('/ready')

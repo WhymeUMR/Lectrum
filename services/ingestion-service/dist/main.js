@@ -23,15 +23,22 @@ let IngestionProcessor = class IngestionProcessor {
         this.env = env;
     }
     onModuleInit() {
-        const connection = { connection: { url: this.env.REDIS_URL } };
-        this.transcriptionQueue = new bullmq_1.Queue(contracts_1.QUEUE_NAMES.transcription, connection);
+        const redis = (0, config_1.buildRedisConnection)(this.env);
+        this.transcriptionQueue = new bullmq_1.Queue(contracts_1.QUEUE_NAMES.transcription, {
+            ...redis,
+            defaultJobOptions: contracts_1.QUEUE_POLICIES.transcription
+        });
         this.worker = new bullmq_1.Worker(contracts_1.QUEUE_NAMES.ingestion, async (job) => {
             await this.transcriptionQueue?.add('transcribe', {
                 lectureId: job.data.lectureId,
                 storagePath: `uploads/${job.data.filename}`,
                 language: 'ru'
             });
-        }, connection);
+        }, {
+            ...redis,
+            removeOnComplete: contracts_1.QUEUE_POLICIES.ingestion.removeOnComplete,
+            removeOnFail: contracts_1.QUEUE_POLICIES.ingestion.removeOnFail
+        });
     }
     async onModuleDestroy() {
         await this.worker?.close();
@@ -47,7 +54,13 @@ let AppController = class AppController {
         this.env = env;
     }
     health() {
-        return { status: 'ok', service: this.env.SERVICE_NAME, queue: contracts_1.QUEUE_NAMES.ingestion };
+        return {
+            status: 'ok',
+            service: this.env.SERVICE_NAME,
+            appEnv: this.env.APP_ENV,
+            queue: contracts_1.QUEUE_NAMES.ingestion,
+            queuePrefix: this.env.REDIS_QUEUE_PREFIX
+        };
     }
     ready() {
         return { status: 'ready' };

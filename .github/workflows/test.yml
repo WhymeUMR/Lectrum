@@ -27,11 +27,34 @@ jobs:
       - name: Build workspaces
         run: npm run build
 
-  docker-compose-config:
+  env-config-and-compose:
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 16379:6379
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install
+        run: npm ci
+
+      - name: Validate local config
+        run: ./scripts/check-config.sh local
+
+      - name: Validate staging config
+        run: ./scripts/check-config.sh staging
+
+      - name: Validate production config
+        run: ./scripts/check-config.sh production
 
       - name: Validate docker compose config
         run: docker compose config

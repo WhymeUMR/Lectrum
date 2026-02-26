@@ -7,3 +7,25 @@ test('queue names are versioned', () => {
     assert.ok(q.includes('.v1.'));
   }
 });
+
+test('queue policies retain failed jobs longer than completed jobs', () => {
+  const policies = {
+    ingestion: {
+      removeOnComplete: { age: 24 * 60 * 60, count: 2000 },
+      removeOnFail: { age: 7 * 24 * 60 * 60, count: 5000 }
+    },
+    transcription: {
+      removeOnComplete: { age: 24 * 60 * 60, count: 2000 },
+      removeOnFail: { age: 7 * 24 * 60 * 60, count: 5000 }
+    },
+    flashcard: {
+      removeOnComplete: { age: 24 * 60 * 60, count: 2000 },
+      removeOnFail: { age: 7 * 24 * 60 * 60, count: 5000 }
+    }
+  };
+
+  for (const policy of Object.values(policies)) {
+    assert.ok(policy.removeOnFail.age > policy.removeOnComplete.age);
+    assert.ok(policy.removeOnFail.count >= policy.removeOnComplete.count);
+  }
+});

@@ -23,10 +23,14 @@ let FlashcardProcessor = class FlashcardProcessor {
         this.env = env;
     }
     onModuleInit() {
-        const connection = { connection: { url: this.env.REDIS_URL } };
+        const redis = (0, config_1.buildRedisConnection)(this.env);
         this.worker = new bullmq_1.Worker(contracts_1.QUEUE_NAMES.flashcard, async (job) => {
             console.log(`Generated ${job.data.maxCards} cards for lecture ${job.data.lectureId}`);
-        }, connection);
+        }, {
+            ...redis,
+            removeOnComplete: contracts_1.QUEUE_POLICIES.flashcard.removeOnComplete,
+            removeOnFail: contracts_1.QUEUE_POLICIES.flashcard.removeOnFail
+        });
     }
     async onModuleDestroy() {
         await this.worker?.close();
@@ -41,7 +45,13 @@ let AppController = class AppController {
         this.env = env;
     }
     health() {
-        return { status: 'ok', service: this.env.SERVICE_NAME, queue: contracts_1.QUEUE_NAMES.flashcard };
+        return {
+            status: 'ok',
+            service: this.env.SERVICE_NAME,
+            appEnv: this.env.APP_ENV,
+            queue: contracts_1.QUEUE_NAMES.flashcard,
+            queuePrefix: this.env.REDIS_QUEUE_PREFIX
+        };
     }
     ready() {
         return { status: 'ready' };

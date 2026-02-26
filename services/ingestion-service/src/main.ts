@@ -1,9 +1,9 @@
 import 'reflect-metadata';
 import { Controller, Get, Inject, Module, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { Queue, Worker, Job } from 'bullmq';
-import { IngestionJobPayload, QUEUE_NAMES } from '@lecture/contracts';
-import { APP_ENV, AppEnv, SharedConfigModule } from '@lecture/config';
+import { Job, Queue, Worker } from 'bullmq';
+import { IngestionJobPayload, QUEUE_NAMES, QUEUE_POLICIES } from '@lecture/contracts';
+import { APP_ENV, AppEnv, SharedConfigModule, buildRedisConnection } from '@lecture/config';
 
 class IngestionProcessor implements OnModuleInit, OnModuleDestroy {
   private worker?: Worker;
@@ -12,8 +12,11 @@ class IngestionProcessor implements OnModuleInit, OnModuleDestroy {
   constructor(@Inject(APP_ENV) private readonly env: AppEnv) {}
 
   onModuleInit() {
-    const connection = { connection: { url: this.env.REDIS_URL } };
-    this.transcriptionQueue = new Queue(QUEUE_NAMES.transcription, connection);
+    const redis = buildRedisConnection(this.env);
+    this.transcriptionQueue = new Queue(QUEUE_NAMES.transcription, {
+      ...redis,
+      defaultJobOptions: QUEUE_POLICIES.transcription
+    });
     this.worker = new Worker(
       QUEUE_NAMES.ingestion,
       async (job: Job<IngestionJobPayload>) => {
@@ -23,7 +26,11 @@ class IngestionProcessor implements OnModuleInit, OnModuleDestroy {
           language: 'ru'
         });
       },
-      connection
+      {
+        ...redis,
+        removeOnComplete: QUEUE_POLICIES.ingestion.removeOnComplete,
+        removeOnFail: QUEUE_POLICIES.ingestion.removeOnFail
+      }
     );
   }
 
@@ -39,7 +46,13 @@ class AppController {
 
   @Get('/health')
   health() {
-    return { status: 'ok', service: this.env.SERVICE_NAME, queue: QUEUE_NAMES.ingestion };
+    return {
+      status: 'ok',
+      service: this.env.SERVICE_NAME,
+      appEnv: this.env.APP_ENV,
+      queue: QUEUE_NAMES.ingestion,
+      queuePrefix: this.env.REDIS_QUEUE_PREFIX
+    };
   }
 
   @Get('/ready')
