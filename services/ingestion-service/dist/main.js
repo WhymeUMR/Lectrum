@@ -66,6 +66,7 @@ let IngestionProcessor = class IngestionProcessor {
                     sourceType: payload.sourceType,
                     sourceUrl: payload.sourceUrl,
                     storagePath: relativeStoragePath,
+                    mimeType: payload.mimeType,
                     language: payload.requestedLanguage ?? 'ru'
                 });
             }

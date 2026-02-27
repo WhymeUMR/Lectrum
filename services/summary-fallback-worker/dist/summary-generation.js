@@ -5,9 +5,6 @@ exports.generateSummary = generateSummary;
 const zod_1 = require("zod");
 const InsightKindSchema = zod_1.z.enum(['formula', 'code', 'literature', 'concept', 'example']);
 const SummarySchema = zod_1.z.object({
-    title: zod_1.z.string().min(3),
-    duration: zod_1.z.string().min(4),
-    smart_reading_time: zod_1.z.string().min(3),
     executive_summary: zod_1.z.string().min(20),
     top_takeaways: zod_1.z.array(zod_1.z.string().min(8)).min(3).max(7),
     material_insights: zod_1.z.array(zod_1.z.object({
@@ -40,9 +37,6 @@ async function generateSummary(input, options) {
         'Сделай конспект лекции в строгом JSON-формате (без markdown и без пояснений).',
         'JSON-схема:',
         '{',
-        '  "title": "...",',
-        '  "duration": "HH:MM:SS",',
-        '  "smart_reading_time": "3 min",',
         '  "executive_summary": "...",',
         '  "top_takeaways": ["...", "...", "..."],',
         '  "material_insights": [{"kind":"formula|code|literature|concept|example","title":"...","importance":"...","application":"...","snippet":"..."}],',
@@ -65,9 +59,7 @@ async function generateSummary(input, options) {
     ].join('\n');
     const parsed = await requestSummaryFromLlm(options.apiKey, prompt, options, timeoutMs);
     const normalized = normalizeSummaryPayload(parsed, {
-        sourceTitle: input.title,
-        transcriptText: input.transcriptText,
-        durationSec
+        transcriptText: input.transcriptText
     });
     try {
         return SummarySchema.parse(normalized);
@@ -161,9 +153,6 @@ function normalizeSummaryPayload(raw, defaults) {
                 : [];
     const materialInsights = normalizeInsights(rawInsights, sentences);
     return {
-        title: toText(obj.title ?? obj.source_metadata?.title, defaults.sourceTitle),
-        duration: toText(obj.duration ?? obj.source_metadata?.duration, formatDuration(defaults.durationSec)),
-        smart_reading_time: toText(obj.smart_reading_time ?? obj.smartReadingTime ?? obj.source_metadata?.reading_time, estimateSmartReadingTime(defaults.durationSec)),
         executive_summary: toText(obj.executive_summary ?? obj.executiveSummary ?? obj.summary ?? obj.one_sentence_pitch, buildExecutiveSummary(sentences)),
         top_takeaways: (takeaways.length >= 3 ? takeaways : buildTakeaways(sentences)).slice(0, 7),
         material_insights: materialInsights,
@@ -288,10 +277,6 @@ function buildTakeaways(sentences) {
         points.push(points[points.length - 1] || 'Ключевой тезис лекции.');
     return Array.from(new Set(points));
 }
-function estimateSmartReadingTime(durationSec) {
-    const minutes = Math.max(3, Math.min(12, Math.ceil(durationSec / 2400)));
-    return `${minutes} min`;
-}
 function extractConcepts(sentences) {
     const words = (sentences.join(' ').match(/[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\-]{4,}/g) ?? []);
     const out = [];
@@ -307,12 +292,6 @@ function normalizeStringArray(value) {
     if (!Array.isArray(value))
         return [];
     return value.map((v) => toText(v, '')).map((v) => v.trim()).filter((v) => v.length > 0);
-}
-function formatDuration(durationSec) {
-    const h = Math.floor(durationSec / 3600).toString().padStart(2, '0');
-    const m = Math.floor((durationSec % 3600) / 60).toString().padStart(2, '0');
-    const s = Math.floor(durationSec % 60).toString().padStart(2, '0');
-    return `${h}:${m}:${s}`;
 }
 function toText(value, fallback) {
     if (typeof value === 'string' && value.trim())

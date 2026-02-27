@@ -15,8 +15,8 @@ export interface TranscriptHighlight {
     reason: string;
 }
 export declare class HighlightGenerationError extends Error {
-    readonly code: 'HIGHLIGHTS_AI_UNAVAILABLE' | 'HIGHLIGHTS_AI_HTTP_ERROR' | 'HIGHLIGHTS_AI_INVALID_RESPONSE';
-    constructor(code: 'HIGHLIGHTS_AI_UNAVAILABLE' | 'HIGHLIGHTS_AI_HTTP_ERROR' | 'HIGHLIGHTS_AI_INVALID_RESPONSE', message: string);
+    readonly code: 'HIGHLIGHTS_AI_UNAVAILABLE' | 'HIGHLIGHTS_AI_HTTP_ERROR' | 'HIGHLIGHTS_AI_INVALID_RESPONSE' | 'HIGHLIGHTS_EMPTY_TRANSCRIPT';
+    constructor(code: 'HIGHLIGHTS_AI_UNAVAILABLE' | 'HIGHLIGHTS_AI_HTTP_ERROR' | 'HIGHLIGHTS_AI_INVALID_RESPONSE' | 'HIGHLIGHTS_EMPTY_TRANSCRIPT', message: string);
 }
 export interface HighlightGenerationOptions {
     apiKey?: string;

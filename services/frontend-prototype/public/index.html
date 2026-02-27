@@ -78,8 +78,8 @@
     <section id="processing">
       <h2>Обработка</h2>
       <form id="upload-form">
-        <label for="audio-file">Аудио файл:</label>
-        <input id="audio-file" name="audio-file" type="file" accept="audio/*,video/*" required />
+        <label for="audio-file">Файл (аудио/видео/PDF/TXT/PPTX):</label>
+        <input id="audio-file" name="audio-file" type="file" accept="audio/*,video/*,.pdf,.txt,.pptx" required />
         <button type="submit">Отправить в обработку</button>
       </form>
 
@@ -204,10 +204,6 @@
       }
 
       const lines = [];
-      lines.push(`Источник: ${summary.title || ''}`);
-      lines.push(`Длительность: ${summary.duration || ''}`);
-      lines.push(`Время чтения: ${summary.smart_reading_time || ''}`);
-      lines.push('');
       lines.push(`Суть: ${summary.executive_summary || ''}`);
       lines.push('');
       lines.push('Ключевые тезисы:');

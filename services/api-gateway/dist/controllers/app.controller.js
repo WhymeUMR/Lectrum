@@ -11,9 +11,13 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AppController = void 0;
 const node_crypto_1 = require("node:crypto");
+const node_path_1 = __importDefault(require("node:path"));
 const common_1 = require("@nestjs/common");
 const platform_express_1 = require("@nestjs/platform-express");
 const contracts_1 = require("@lecture/contracts");
@@ -50,6 +54,9 @@ let AppController = class AppController {
         }
         if (parsed.sourceType === 'url' && !parsed.sourceUrl) {
             throw new common_1.BadRequestException('sourceUrl is required for url sourceType');
+        }
+        if (parsed.sourceType === 'upload') {
+            this.assertSupportedUpload(parsed.filename, parsed.mimeType);
         }
         const activeJob = await this.store.repo.getActiveJob();
         if (activeJob) {
@@ -98,6 +105,45 @@ let AppController = class AppController {
             status: 'QUEUED',
             queue: contracts_1.QUEUE_NAMES.ingestion
         };
+    }
+    assertSupportedUpload(filename, mimeType) {
+        const ext = node_path_1.default.extname(String(filename || '')).toLowerCase();
+        const mime = String(mimeType || '').toLowerCase();
+        const allowedMimePrefix = ['audio/', 'video/'];
+        const allowedMimeSet = new Set([
+            'application/pdf',
+            'text/plain',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+        ]);
+        const allowedExt = new Set(['.mp3', '.wav', '.m4a', '.ogg', '.aac', '.flac', '.mp4', '.mov', '.mkv', '.webm', '.pdf', '.txt', '.pptx']);
+        const mimeOk = mime.length === 0 ||
+            allowedMimePrefix.some((prefix) => mime.startsWith(prefix)) ||
+            allowedMimeSet.has(mime);
+        const extOk = allowedExt.has(ext);
+        if (!mimeOk && !extOk) {
+            throw new common_1.BadRequestException('Unsupported file type. Allowed: audio/video, PDF, TXT, PPTX');
+        }
+    }
+    isAudioVideoJob(job) {
+        const mime = String(job.mimeType ?? '').toLowerCase();
+        if (mime.startsWith('audio/') || mime.startsWith('video/')) {
+            return true;
+        }
+        const allowedMediaExt = new Set([
+            '.mp3',
+            '.wav',
+            '.m4a',
+            '.ogg',
+            '.aac',
+            '.flac',
+            '.mp4',
+            '.mov',
+            '.mkv',
+            '.webm'
+        ]);
+        const filenameExt = node_path_1.default.extname(String(job.filename ?? '')).toLowerCase();
+        const storageExt = node_path_1.default.extname(String(job.storagePath ?? '')).toLowerCase();
+        return allowedMediaExt.has(filenameExt) || allowedMediaExt.has(storageExt);
     }
     async getJob(jobId) {
         const job = await this.store.repo.getJob(jobId);
@@ -296,6 +342,9 @@ let AppController = class AppController {
         if (job.status === 'FAILED') {
             throw new common_1.ConflictException('Cannot generate highlights for failed job');
         }
+        if (!this.isAudioVideoJob(job)) {
+            throw new common_1.ConflictException('Highlights are available only for audio/video files');
+        }
         if (!job.transcriptJson) {
             throw new common_1.ConflictException('Transcript is not ready yet');
         }
@@ -325,10 +374,10 @@ let AppController = class AppController {
         if (!job) {
             throw new common_1.NotFoundException(`Job ${jobId} not found`);
         }
-        if (job.status === 'FAILED') {
-            throw new common_1.ConflictException('Cannot generate summary for failed job');
-        }
         if (!job.transcriptText) {
+            if (job.status === 'FAILED') {
+                throw new common_1.ConflictException('Cannot generate summary: job failed before transcript was produced');
+            }
             throw new common_1.ConflictException('Transcript is not ready yet');
         }
         if (job.status === 'GENERATING_SUMMARY') {

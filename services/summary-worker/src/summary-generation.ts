@@ -11,9 +11,6 @@ type Insight = {
 };
 
 const SummarySchema = z.object({
-  title: z.string().min(3),
-  duration: z.string().min(4),
-  smart_reading_time: z.string().min(3),
   executive_summary: z.string().min(20),
   top_takeaways: z.array(z.string().min(8)).min(3).max(7),
   material_insights: z.array(z.object({
@@ -72,9 +69,6 @@ export async function generateSummary(
     'Сделай конспект лекции в строгом JSON-формате (без markdown и без пояснений).',
     'JSON-схема:',
     '{',
-    '  "title": "...",',
-    '  "duration": "HH:MM:SS",',
-    '  "smart_reading_time": "3 min",',
     '  "executive_summary": "...",',
     '  "top_takeaways": ["...", "...", "..."],',
     '  "material_insights": [{"kind":"formula|code|literature|concept|example","title":"...","importance":"...","application":"...","snippet":"..."}],',
@@ -98,9 +92,7 @@ export async function generateSummary(
 
   const parsed = await requestSummaryFromLlm(options.apiKey, prompt, options, timeoutMs);
   const normalized = normalizeSummaryPayload(parsed, {
-    sourceTitle: input.title,
-    transcriptText: input.transcriptText,
-    durationSec
+    transcriptText: input.transcriptText
   });
 
   try {
@@ -187,7 +179,7 @@ function parseJsonLoose(content: string): unknown {
 
 function normalizeSummaryPayload(
   raw: unknown,
-  defaults: { sourceTitle: string; transcriptText: string; durationSec: number }
+  defaults: { transcriptText: string }
 ): LectureSummary {
   const obj = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const sentences = splitSentences(defaults.transcriptText);
@@ -207,12 +199,6 @@ function normalizeSummaryPayload(
   const materialInsights = normalizeInsights(rawInsights, sentences);
 
   return {
-    title: toText(obj.title ?? (obj.source_metadata as Record<string, unknown> | undefined)?.title, defaults.sourceTitle),
-    duration: toText(obj.duration ?? (obj.source_metadata as Record<string, unknown> | undefined)?.duration, formatDuration(defaults.durationSec)),
-    smart_reading_time: toText(
-      obj.smart_reading_time ?? obj.smartReadingTime ?? (obj.source_metadata as Record<string, unknown> | undefined)?.reading_time,
-      estimateSmartReadingTime(defaults.durationSec)
-    ),
     executive_summary: toText(
       obj.executive_summary ?? obj.executiveSummary ?? obj.summary ?? obj.one_sentence_pitch,
       buildExecutiveSummary(sentences)
@@ -341,11 +327,6 @@ function buildTakeaways(sentences: string[]): string[] {
   return Array.from(new Set(points));
 }
 
-function estimateSmartReadingTime(durationSec: number): string {
-  const minutes = Math.max(3, Math.min(12, Math.ceil(durationSec / 2400)));
-  return `${minutes} min`;
-}
-
 function extractConcepts(sentences: string[]): string[] {
   const words = (sentences.join(' ').match(/[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\-]{4,}/g) ?? []);
   const out: string[] = [];
@@ -359,13 +340,6 @@ function extractConcepts(sentences: string[]): string[] {
 function normalizeStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.map((v) => toText(v, '')).map((v) => v.trim()).filter((v) => v.length > 0);
-}
-
-function formatDuration(durationSec: number): string {
-  const h = Math.floor(durationSec / 3600).toString().padStart(2, '0');
-  const m = Math.floor((durationSec % 3600) / 60).toString().padStart(2, '0');
-  const s = Math.floor(durationSec % 60).toString().padStart(2, '0');
-  return `${h}:${m}:${s}`;
 }
 
 function toText(value: unknown, fallback: string): string {

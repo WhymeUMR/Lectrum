@@ -64,6 +64,7 @@ exports.TranscriptionJobSchema = zod_1.z.object({
     sourceType: zod_1.z.enum(['upload', 'url']),
     sourceUrl: zod_1.z.string().url().optional(),
     storagePath: zod_1.z.string().min(1),
+    mimeType: zod_1.z.string().min(1).optional(),
     language: zod_1.z.string().default('ru')
 });
 exports.FlashcardGenerationJobSchema = zod_1.z.object({

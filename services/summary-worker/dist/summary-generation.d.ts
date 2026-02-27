@@ -1,8 +1,5 @@
 import { z } from 'zod';
 declare const SummarySchema: z.ZodObject<{
-    title: z.ZodString;
-    duration: z.ZodString;
-    smart_reading_time: z.ZodString;
     executive_summary: z.ZodString;
     top_takeaways: z.ZodArray<z.ZodString, "many">;
     material_insights: z.ZodArray<z.ZodObject<{
@@ -12,14 +9,14 @@ declare const SummarySchema: z.ZodObject<{
         application: z.ZodOptional<z.ZodString>;
         snippet: z.ZodOptional<z.ZodString>;
     }, "strip", z.ZodTypeAny, {
-        title: string;
         kind: "formula" | "code" | "literature" | "concept" | "example";
+        title: string;
         importance: string;
         application?: string | undefined;
         snippet?: string | undefined;
     }, {
-        title: string;
         kind: "formula" | "code" | "literature" | "concept" | "example";
+        title: string;
         importance: string;
         application?: string | undefined;
         snippet?: string | undefined;
@@ -35,14 +32,11 @@ declare const SummarySchema: z.ZodObject<{
         concepts: string[];
     }>;
 }, "strip", z.ZodTypeAny, {
-    title: string;
-    duration: string;
-    smart_reading_time: string;
     executive_summary: string;
     top_takeaways: string[];
     material_insights: {
-        title: string;
         kind: "formula" | "code" | "literature" | "concept" | "example";
+        title: string;
         importance: string;
         application?: string | undefined;
         snippet?: string | undefined;
@@ -52,14 +46,11 @@ declare const SummarySchema: z.ZodObject<{
         concepts: string[];
     };
 }, {
-    title: string;
-    duration: string;
-    smart_reading_time: string;
     executive_summary: string;
     top_takeaways: string[];
     material_insights: {
-        title: string;
         kind: "formula" | "code" | "literature" | "concept" | "example";
+        title: string;
         importance: string;
         application?: string | undefined;
         snippet?: string | undefined;

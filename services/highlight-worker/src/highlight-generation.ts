@@ -22,7 +22,8 @@ export class HighlightGenerationError extends Error {
     public readonly code:
       | 'HIGHLIGHTS_AI_UNAVAILABLE'
       | 'HIGHLIGHTS_AI_HTTP_ERROR'
-      | 'HIGHLIGHTS_AI_INVALID_RESPONSE',
+      | 'HIGHLIGHTS_AI_INVALID_RESPONSE'
+      | 'HIGHLIGHTS_EMPTY_TRANSCRIPT',
     message: string
   ) {
     super(message);
@@ -48,9 +49,23 @@ export async function generateHighlights(
   options: HighlightGenerationOptions,
   maxHighlights = 30
 ): Promise<TranscriptHighlight[]> {
+  const hasTranscriptText = String(transcript.text ?? '').trim().length > 0;
+  const hasSegmentText = (transcript.segments ?? []).some(
+    (segment) => String(segment.text ?? '').trim().length > 0
+  );
+  if (!hasTranscriptText && !hasSegmentText) {
+    throw new HighlightGenerationError(
+      'HIGHLIGHTS_EMPTY_TRANSCRIPT',
+      'Cannot generate highlights: transcript is empty'
+    );
+  }
+
   const { chunks, targetCount } = toChunks(transcript, maxHighlights);
   if (chunks.length === 0) {
-    return [];
+    throw new HighlightGenerationError(
+      'HIGHLIGHTS_EMPTY_TRANSCRIPT',
+      'Cannot generate highlights: transcript does not contain enough text'
+    );
   }
   if (!options.apiKey) {
     throw new HighlightGenerationError(

@@ -67,6 +67,7 @@ export const TranscriptionJobSchema = z.object({
   sourceType: z.enum(['upload', 'url']),
   sourceUrl: z.string().url().optional(),
   storagePath: z.string().min(1),
+  mimeType: z.string().min(1).optional(),
   language: z.string().default('ru')
 });
 

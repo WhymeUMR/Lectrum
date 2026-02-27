@@ -33,6 +33,8 @@ export declare class AppController {
         status: string;
         queue: "lec.v1.ingestion";
     }>;
+    private assertSupportedUpload;
+    private isAudioVideoJob;
     getJob(jobId: string): Promise<import("@lecture/pipeline").JobRecord>;
     getJobResult(jobId: string, response: Response): Promise<{
         jobId: string;

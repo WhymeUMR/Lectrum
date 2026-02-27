@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import path from 'node:path';
 import {
   BadRequestException,
   Body,
@@ -69,6 +70,9 @@ export class AppController {
     if (parsed.sourceType === 'url' && !parsed.sourceUrl) {
       throw new BadRequestException('sourceUrl is required for url sourceType');
     }
+    if (parsed.sourceType === 'upload') {
+      this.assertSupportedUpload(parsed.filename, parsed.mimeType);
+    }
 
     const activeJob = await this.store.repo.getActiveJob();
     if (activeJob) {
@@ -123,6 +127,52 @@ export class AppController {
       status: 'QUEUED',
       queue: QUEUE_NAMES.ingestion
     };
+  }
+
+  private assertSupportedUpload(filename: string, mimeType?: string): void {
+    const ext = path.extname(String(filename || '')).toLowerCase();
+    const mime = String(mimeType || '').toLowerCase();
+    const allowedMimePrefix = ['audio/', 'video/'];
+    const allowedMimeSet = new Set([
+      'application/pdf',
+      'text/plain',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+    ]);
+    const allowedExt = new Set(['.mp3', '.wav', '.m4a', '.ogg', '.aac', '.flac', '.mp4', '.mov', '.mkv', '.webm', '.pdf', '.txt', '.pptx']);
+
+    const mimeOk =
+      mime.length === 0 ||
+      allowedMimePrefix.some((prefix) => mime.startsWith(prefix)) ||
+      allowedMimeSet.has(mime);
+    const extOk = allowedExt.has(ext);
+
+    if (!mimeOk && !extOk) {
+      throw new BadRequestException(
+        'Unsupported file type. Allowed: audio/video, PDF, TXT, PPTX'
+      );
+    }
+  }
+
+  private isAudioVideoJob(job: { filename?: string | null; storagePath?: string | null; mimeType?: string | null }): boolean {
+    const mime = String(job.mimeType ?? '').toLowerCase();
+    if (mime.startsWith('audio/') || mime.startsWith('video/')) {
+      return true;
+    }
+    const allowedMediaExt = new Set([
+      '.mp3',
+      '.wav',
+      '.m4a',
+      '.ogg',
+      '.aac',
+      '.flac',
+      '.mp4',
+      '.mov',
+      '.mkv',
+      '.webm'
+    ]);
+    const filenameExt = path.extname(String(job.filename ?? '')).toLowerCase();
+    const storageExt = path.extname(String(job.storagePath ?? '')).toLowerCase();
+    return allowedMediaExt.has(filenameExt) || allowedMediaExt.has(storageExt);
   }
 
   @Get('/api/v1/jobs/:jobId')
@@ -357,6 +407,9 @@ export class AppController {
     if (job.status === 'FAILED') {
       throw new ConflictException('Cannot generate highlights for failed job');
     }
+    if (!this.isAudioVideoJob(job)) {
+      throw new ConflictException('Highlights are available only for audio/video files');
+    }
     if (!job.transcriptJson) {
       throw new ConflictException('Transcript is not ready yet');
     }
@@ -386,10 +439,10 @@ export class AppController {
     if (!job) {
       throw new NotFoundException(`Job ${jobId} not found`);
     }
-    if (job.status === 'FAILED') {
-      throw new ConflictException('Cannot generate summary for failed job');
-    }
     if (!job.transcriptText) {
+      if (job.status === 'FAILED') {
+        throw new ConflictException('Cannot generate summary: job failed before transcript was produced');
+      }
       throw new ConflictException('Transcript is not ready yet');
     }
     if (job.status === 'GENERATING_SUMMARY') {

@@ -13,6 +13,7 @@ import {
   TranscriptionProviderError,
   TranscriptResult
 } from './transcription-provider';
+import { DocumentExtractionError, extractDocumentTranscript, isDocumentInput } from './document-extractor';
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
@@ -79,16 +80,23 @@ class TranscriptionProcessor implements OnModuleInit, OnModuleDestroy {
         try {
           await this.repo.updateStatus(payload.jobId, 'TRANSCRIBING');
 
-          const transcriptResult = await transcribeWithRetry(
-            this.provider,
-            {
-              artifactsDir: this.env.ARTIFACTS_DIR,
-              storagePath: payload.storagePath,
-              requestedLanguage: payload.language
-            },
-            this.env.TRANSCRIPTION_PROVIDER_RETRY_ATTEMPTS,
-            this.env.TRANSCRIPTION_PROVIDER_RETRY_DELAY_MS
-          );
+          const transcriptResult = isDocumentInput(payload.storagePath, payload.mimeType)
+            ? await extractDocumentTranscript(
+                this.env.ARTIFACTS_DIR,
+                payload.storagePath,
+                payload.language
+              )
+            : await transcribeWithRetry(
+                this.provider,
+                {
+                  artifactsDir: this.env.ARTIFACTS_DIR,
+                  storagePath: payload.storagePath,
+                  requestedLanguage: payload.language,
+                  mimeType: payload.mimeType
+                },
+                this.env.TRANSCRIPTION_PROVIDER_RETRY_ATTEMPTS,
+                this.env.TRANSCRIPTION_PROVIDER_RETRY_DELAY_MS
+              );
           const transcriptText = transcriptResult.text;
 
           const chunkPlan = planChunking(transcriptText.length, {
@@ -114,8 +122,15 @@ class TranscriptionProcessor implements OnModuleInit, OnModuleDestroy {
           await this.repo.updateStatus(payload.jobId, 'COMPLETED');
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          const errorCode =
-            error instanceof TranscriptionProviderError ? error.code : 'TRANSCRIPTION_ERROR';
+          const errorCode = (() => {
+            if (error instanceof TranscriptionProviderError) {
+              return error.code;
+            }
+            if (error instanceof DocumentExtractionError) {
+              return error.code;
+            }
+            return 'TRANSCRIPTION_ERROR';
+          })();
           const configuredAttempts = Number(job.opts.attempts ?? 1);
           const hasAttemptsLeft = job.attemptsMade + 1 < configuredAttempts;
           const retryable = isRetryableTranscriptionCode(errorCode);

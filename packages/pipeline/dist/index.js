@@ -131,7 +131,14 @@ class PipelineRepository {
         return result.rows[0] ?? null;
     }
     async updateStatus(jobId, status) {
-        await this.pool.query(`UPDATE lecture_jobs SET status = $2, updated_at = NOW() WHERE job_id = $1`, [jobId, status]);
+        await this.pool.query(`
+      UPDATE lecture_jobs
+      SET status = $2,
+          error_code = CASE WHEN $2 = 'FAILED' THEN error_code ELSE NULL END,
+          error_message = CASE WHEN $2 = 'FAILED' THEN error_message ELSE NULL END,
+          updated_at = NOW()
+      WHERE job_id = $1
+      `, [jobId, status]);
     }
     async setSourceStoragePath(jobId, storagePath) {
         await this.pool.query(`UPDATE lecture_jobs SET storage_path = $2, updated_at = NOW() WHERE job_id = $1`, [jobId, storagePath]);

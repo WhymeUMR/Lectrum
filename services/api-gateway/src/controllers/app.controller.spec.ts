@@ -35,6 +35,8 @@ describe('AppController', () => {
                     jobId: '123',
                     lectureId: 'l-123',
                     status: 'COMPLETED',
+                    filename: 'lecture.mp3',
+                    mimeType: 'audio/mpeg',
                     transcriptPath: '/path',
                     transcriptText: 'text',
                     transcriptJson: JSON.stringify({ duration: 10, text: 'text', segments: [{ start: 0, end: 1, text: 'text' }] }),
@@ -97,6 +99,30 @@ describe('AppController', () => {
         assert.strictEqual(queuePayload.fileBase64, Buffer.from('hello-audio').toString('base64'));
     });
 
+    test('createIngestionJob accepts txt document upload', async () => {
+        let queuePayload: any;
+        mockQueueService.enqueueIngestion = async (payload: any) => {
+            queuePayload = payload;
+        };
+
+        const res = await controller.createIngestionJob(
+            { sourceType: 'upload', requestedLanguage: 'ru', filename: 'lecture-notes.txt', mimeType: 'text/plain' },
+            { buffer: Buffer.from('hello text') } as any
+        );
+
+        assert.ok(res.jobId);
+        assert.strictEqual(res.status, 'QUEUED');
+        assert.strictEqual(queuePayload.filename, 'lecture-notes.txt');
+        assert.strictEqual(queuePayload.mimeType, 'text/plain');
+    });
+
+    test('createIngestionJob rejects unsupported upload extension and mime', async () => {
+        await assert.rejects(
+            () => controller.createIngestionJob({ sourceType: 'upload', requestedLanguage: 'ru', filename: 'bad.xyz', mimeType: 'application/xyz' }, { buffer: Buffer.from('x') } as any),
+            (e) => e instanceof BadRequestException
+        );
+    });
+
     test('createIngestionJob marks job failed when enqueue errors', async () => {
         let setErrorCalled = false;
         mockQueueService.enqueueIngestion = async () => { throw new Error('redis down'); };
@@ -153,6 +179,26 @@ describe('AppController', () => {
         assert.equal(payload.jobId, '123');
     });
 
+    test('generateTranscriptHighlights rejects non-audio/video source', async () => {
+        const originalGetJob = mockJobStore.repo.getJob;
+        mockJobStore.repo.getJob = async (id: string) => {
+            if (id !== 'doc-1') return originalGetJob(id);
+            return {
+                jobId: 'doc-1',
+                lectureId: 'l-doc-1',
+                status: 'COMPLETED',
+                filename: 'notes.pdf',
+                mimeType: 'application/pdf',
+                transcriptJson: JSON.stringify({ duration: 1, text: 'doc text', segments: [{ start: 0, end: 1, text: 'doc text' }] })
+            };
+        };
+        const mockResponse: any = { status: () => mockResponse };
+        await assert.rejects(
+            () => controller.generateTranscriptHighlights('doc-1', mockResponse),
+            (e) => e instanceof ConflictException
+        );
+    });
+
     test('getLectureSummary returns ready summary', async () => {
         const mockResponse: any = { status: () => mockResponse };
         const res = await controller.getLectureSummary('123', mockResponse);
@@ -189,6 +235,27 @@ describe('AppController', () => {
         mockQueueService.enqueueSummary = async (p: any) => { payload = p; };
         await controller.generateLectureSummary('flt', mockResponse);
         assert.equal(payload.durationSec, 5791);
+    });
+
+    test('generateLectureSummary allows retry for FAILED job when transcript exists', async () => {
+        let payload: any;
+        const mockResponse: any = { status: () => mockResponse };
+        const originalGetJob = mockJobStore.repo.getJob;
+        mockJobStore.repo.getJob = async (id: string) => {
+            if (id !== 'failed-with-transcript') return originalGetJob(id);
+            return {
+                jobId: 'failed-with-transcript',
+                lectureId: 'l-failed',
+                status: 'FAILED',
+                filename: 'failed.mp3',
+                transcriptText: 'ready transcript',
+                transcriptJson: JSON.stringify({ duration: 42, text: 'ready transcript', segments: [] })
+            };
+        };
+        mockQueueService.enqueueSummary = async (p: any) => { payload = p; };
+        const res = await controller.generateLectureSummary('failed-with-transcript', mockResponse);
+        assert.equal(res.status, 'GENERATING_SUMMARY');
+        assert.equal(payload.jobId, 'failed-with-transcript');
     });
 
     test('generateFlashcards enqueues generation request', async () => {

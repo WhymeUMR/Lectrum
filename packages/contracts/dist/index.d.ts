@@ -137,6 +137,7 @@ export declare const TranscriptionJobSchema: z.ZodObject<{
     sourceType: z.ZodEnum<["upload", "url"]>;
     sourceUrl: z.ZodOptional<z.ZodString>;
     storagePath: z.ZodString;
+    mimeType: z.ZodOptional<z.ZodString>;
     language: z.ZodDefault<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
     jobId: string;
@@ -145,12 +146,14 @@ export declare const TranscriptionJobSchema: z.ZodObject<{
     storagePath: string;
     language: string;
     sourceUrl?: string | undefined;
+    mimeType?: string | undefined;
 }, {
     jobId: string;
     lectureId: string;
     sourceType: "upload" | "url";
     storagePath: string;
     sourceUrl?: string | undefined;
+    mimeType?: string | undefined;
     language?: string | undefined;
 }>;
 export declare const FlashcardGenerationJobSchema: z.ZodObject<{

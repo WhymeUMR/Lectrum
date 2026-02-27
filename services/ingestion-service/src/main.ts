@@ -64,6 +64,7 @@ class IngestionProcessor implements OnModuleInit, OnModuleDestroy {
             sourceType: payload.sourceType,
             sourceUrl: payload.sourceUrl,
             storagePath: relativeStoragePath,
+            mimeType: payload.mimeType,
             language: payload.requestedLanguage ?? 'ru'
           });
         } catch (error) {

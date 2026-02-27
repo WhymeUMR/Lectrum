@@ -37,13 +37,15 @@ const common_1 = require("@nestjs/common");
                         jobId: '123',
                         lectureId: 'l-123',
                         status: 'COMPLETED',
+                        filename: 'lecture.mp3',
+                        mimeType: 'audio/mpeg',
                         transcriptPath: '/path',
                         transcriptText: 'text',
                         transcriptJson: JSON.stringify({ duration: 10, text: 'text', segments: [{ start: 0, end: 1, text: 'text' }] }),
                         highlightsPath: '/h-path',
                         highlightsJson: JSON.stringify([{ start: 0, end: 5, text: 'важно', reason: 'ключевая идея' }]),
                         summaryPath: '/s-path',
-                        summaryJson: JSON.stringify({ source_metadata: { title: 't', duration: '00:00:10', reading_time: '1 min' }, one_sentence_pitch: 'pitch', top_takeaways: ['a', 'b', 'c'], timeline: [{ period: '00:00 - 00:10', topic: 'x', summary: 'y' }], entities: { people: [], locations: [], concepts: [] }, action_plan: ['z'] }),
+                        summaryJson: JSON.stringify({ title: 't', duration: '00:00:10', smart_reading_time: '3 min', executive_summary: 'Очень краткая сводка по лекции и ее смыслу.', top_takeaways: ['a long enough takeaway', 'another meaningful takeaway', 'third meaningful takeaway'], material_insights: [{ kind: 'concept', title: 'Главная идея', importance: 'Показывает центральный тезис лекции.' }, { kind: 'example', title: 'Практический пример', importance: 'Позволяет применить идею на практике.' }, { kind: 'concept', title: 'Итоговый вывод', importance: 'Фиксирует финальную мысль лекции.' }], entities: { people: [], concepts: [] } }),
                         flashcardsPath: null,
                         flashcardsJson: null
                     };
@@ -82,6 +84,20 @@ const common_1 = require("@nestjs/common");
         strict_1.default.strictEqual(res.status, 'QUEUED');
         strict_1.default.strictEqual(queuePayload.sourceType, 'upload');
         strict_1.default.strictEqual(queuePayload.fileBase64, Buffer.from('hello-audio').toString('base64'));
+    });
+    (0, node_test_1.test)('createIngestionJob accepts txt document upload', async () => {
+        let queuePayload;
+        mockQueueService.enqueueIngestion = async (payload) => {
+            queuePayload = payload;
+        };
+        const res = await controller.createIngestionJob({ sourceType: 'upload', requestedLanguage: 'ru', filename: 'lecture-notes.txt', mimeType: 'text/plain' }, { buffer: Buffer.from('hello text') });
+        strict_1.default.ok(res.jobId);
+        strict_1.default.strictEqual(res.status, 'QUEUED');
+        strict_1.default.strictEqual(queuePayload.filename, 'lecture-notes.txt');
+        strict_1.default.strictEqual(queuePayload.mimeType, 'text/plain');
+    });
+    (0, node_test_1.test)('createIngestionJob rejects unsupported upload extension and mime', async () => {
+        await strict_1.default.rejects(() => controller.createIngestionJob({ sourceType: 'upload', requestedLanguage: 'ru', filename: 'bad.xyz', mimeType: 'application/xyz' }, { buffer: Buffer.from('x') }), (e) => e instanceof common_1.BadRequestException);
     });
     (0, node_test_1.test)('createIngestionJob marks job failed when enqueue errors', async () => {
         let setErrorCalled = false;
@@ -130,11 +146,28 @@ const common_1 = require("@nestjs/common");
         strict_1.default.equal(res.status, 'GENERATING_HIGHLIGHTS');
         strict_1.default.equal(payload.jobId, '123');
     });
+    (0, node_test_1.test)('generateTranscriptHighlights rejects non-audio/video source', async () => {
+        const originalGetJob = mockJobStore.repo.getJob;
+        mockJobStore.repo.getJob = async (id) => {
+            if (id !== 'doc-1')
+                return originalGetJob(id);
+            return {
+                jobId: 'doc-1',
+                lectureId: 'l-doc-1',
+                status: 'COMPLETED',
+                filename: 'notes.pdf',
+                mimeType: 'application/pdf',
+                transcriptJson: JSON.stringify({ duration: 1, text: 'doc text', segments: [{ start: 0, end: 1, text: 'doc text' }] })
+            };
+        };
+        const mockResponse = { status: () => mockResponse };
+        await strict_1.default.rejects(() => controller.generateTranscriptHighlights('doc-1', mockResponse), (e) => e instanceof common_1.ConflictException);
+    });
     (0, node_test_1.test)('getLectureSummary returns ready summary', async () => {
         const mockResponse = { status: () => mockResponse };
         const res = await controller.getLectureSummary('123', mockResponse);
         strict_1.default.equal(res.lectureId, 'l-123');
-        strict_1.default.equal(typeof res.summary.one_sentence_pitch, 'string');
+        strict_1.default.equal(typeof res.summary.executive_summary, 'string');
     });
     (0, node_test_1.test)('generateLectureSummary enqueues request', async () => {
         let statusCode;
@@ -165,6 +198,27 @@ const common_1 = require("@nestjs/common");
         mockQueueService.enqueueSummary = async (p) => { payload = p; };
         await controller.generateLectureSummary('flt', mockResponse);
         strict_1.default.equal(payload.durationSec, 5791);
+    });
+    (0, node_test_1.test)('generateLectureSummary allows retry for FAILED job when transcript exists', async () => {
+        let payload;
+        const mockResponse = { status: () => mockResponse };
+        const originalGetJob = mockJobStore.repo.getJob;
+        mockJobStore.repo.getJob = async (id) => {
+            if (id !== 'failed-with-transcript')
+                return originalGetJob(id);
+            return {
+                jobId: 'failed-with-transcript',
+                lectureId: 'l-failed',
+                status: 'FAILED',
+                filename: 'failed.mp3',
+                transcriptText: 'ready transcript',
+                transcriptJson: JSON.stringify({ duration: 42, text: 'ready transcript', segments: [] })
+            };
+        };
+        mockQueueService.enqueueSummary = async (p) => { payload = p; };
+        const res = await controller.generateLectureSummary('failed-with-transcript', mockResponse);
+        strict_1.default.equal(res.status, 'GENERATING_SUMMARY');
+        strict_1.default.equal(payload.jobId, 'failed-with-transcript');
     });
     (0, node_test_1.test)('generateFlashcards enqueues generation request', async () => {
         let statusCode;

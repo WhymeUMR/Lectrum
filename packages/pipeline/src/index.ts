@@ -182,7 +182,14 @@ export class PipelineRepository {
 
   async updateStatus(jobId: string, status: JobStatus): Promise<void> {
     await this.pool.query(
-      `UPDATE lecture_jobs SET status = $2, updated_at = NOW() WHERE job_id = $1`,
+      `
+      UPDATE lecture_jobs
+      SET status = $2,
+          error_code = CASE WHEN $2 = 'FAILED' THEN error_code ELSE NULL END,
+          error_message = CASE WHEN $2 = 'FAILED' THEN error_message ELSE NULL END,
+          updated_at = NOW()
+      WHERE job_id = $1
+      `,
       [jobId, status]
     );
   }

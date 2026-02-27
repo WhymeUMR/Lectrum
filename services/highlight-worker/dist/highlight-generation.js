@@ -11,9 +11,14 @@ class HighlightGenerationError extends Error {
 }
 exports.HighlightGenerationError = HighlightGenerationError;
 async function generateHighlights(transcript, options, maxHighlights = 30) {
+    const hasTranscriptText = String(transcript.text ?? '').trim().length > 0;
+    const hasSegmentText = (transcript.segments ?? []).some((segment) => String(segment.text ?? '').trim().length > 0);
+    if (!hasTranscriptText && !hasSegmentText) {
+        throw new HighlightGenerationError('HIGHLIGHTS_EMPTY_TRANSCRIPT', 'Cannot generate highlights: transcript is empty');
+    }
     const { chunks, targetCount } = toChunks(transcript, maxHighlights);
     if (chunks.length === 0) {
-        return [];
+        throw new HighlightGenerationError('HIGHLIGHTS_EMPTY_TRANSCRIPT', 'Cannot generate highlights: transcript does not contain enough text');
     }
     if (!options.apiKey) {
         throw new HighlightGenerationError('HIGHLIGHTS_AI_UNAVAILABLE', 'OPENAI_API_KEY is required for AI highlights generation');
