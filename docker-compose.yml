@@ -146,6 +146,24 @@ services:
       timeout: 3s
       retries: 10
 
+  frontend-prototype:
+    build:
+      <<: *common-build
+      dockerfile: services/frontend-prototype/Dockerfile
+    environment:
+      API_BASE_URL: http://api-gateway:3000
+      PORT: 3000
+    ports:
+      - '80:3000'
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', "wget -qO- http://127.0.0.1:3000/health | grep -q 'ok'"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
 volumes:
   postgres_data:
   redis_data:

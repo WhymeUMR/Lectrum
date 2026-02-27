@@ -70,4 +70,60 @@ describe('GlobalExceptionFilter', () => {
         assert.strictEqual(jsonResponse.statusCode, 500);
         assert.strictEqual(jsonResponse.message, 'Internal server error');
     });
+
+    test('should map entity.too.large to 413', () => {
+        filter = new GlobalExceptionFilter();
+        let jsonStatus: number | undefined;
+        let jsonResponse: any;
+
+        const mockResponse = {
+            status: (code: number) => {
+                jsonStatus = code;
+                return {
+                    json: (body: any) => {
+                        jsonResponse = body;
+                    }
+                };
+            }
+        };
+
+        const mockHost = {
+            switchToHttp: () => ({
+                getResponse: () => mockResponse
+            })
+        };
+
+        filter.catch({ type: 'entity.too.large' }, mockHost as any);
+        assert.strictEqual(jsonStatus, 413);
+        assert.strictEqual(jsonResponse.statusCode, 413);
+        assert.strictEqual(jsonResponse.message, 'Payload too large');
+    });
+
+    test('should map LIMIT_FILE_SIZE to 413', () => {
+        filter = new GlobalExceptionFilter();
+        let jsonStatus: number | undefined;
+        let jsonResponse: any;
+
+        const mockResponse = {
+            status: (code: number) => {
+                jsonStatus = code;
+                return {
+                    json: (body: any) => {
+                        jsonResponse = body;
+                    }
+                };
+            }
+        };
+
+        const mockHost = {
+            switchToHttp: () => ({
+                getResponse: () => mockResponse
+            })
+        };
+
+        filter.catch({ code: 'LIMIT_FILE_SIZE' }, mockHost as any);
+        assert.strictEqual(jsonStatus, 413);
+        assert.strictEqual(jsonResponse.statusCode, 413);
+        assert.strictEqual(jsonResponse.message, 'Payload too large');
+    });
 });

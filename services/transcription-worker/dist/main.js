@@ -24,6 +24,25 @@ const contracts_1 = require("@lecture/contracts");
 const config_1 = require("@lecture/config");
 const pipeline_1 = require("@lecture/pipeline");
 const chunking_1 = require("./chunking");
+const transcription_provider_1 = require("./transcription-provider");
+async function sleep(ms) {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+}
+async function transcribeWithRetry(provider, req, attempts, retryDelayMs) {
+    let lastError;
+    for (let i = 1; i <= attempts; i += 1) {
+        try {
+            return await provider.transcribe(req);
+        }
+        catch (error) {
+            lastError = error;
+            if (i >= attempts)
+                break;
+            await sleep(retryDelayMs * i);
+        }
+    }
+    throw lastError;
+}
 let TranscriptionProcessor = class TranscriptionProcessor {
     constructor(env) {
         this.env = env;
@@ -31,6 +50,13 @@ let TranscriptionProcessor = class TranscriptionProcessor {
             throw new Error('DATABASE_URL is required for transcription-worker');
         }
         this.repo = pipeline_1.PipelineRepository.fromDatabaseUrl(env.DATABASE_URL);
+        this.provider = (0, transcription_provider_1.createTranscriptionProvider)({
+            TRANSCRIPTION_PROVIDER: env.TRANSCRIPTION_PROVIDER,
+            OPENAI_API_KEY: env.TRANSCRIPTION_OPENAI_API_KEY ?? env.OPENAI_API_KEY,
+            OPENAI_BASE_URL: env.TRANSCRIPTION_OPENAI_BASE_URL ?? env.OPENAI_BASE_URL,
+            TRANSCRIPTION_OPENAI_MODEL: env.TRANSCRIPTION_OPENAI_MODEL,
+            TRANSCRIPTION_PROVIDER_TIMEOUT_MS: env.TRANSCRIPTION_PROVIDER_TIMEOUT_MS
+        });
     }
     async onModuleInit() {
         await this.repo.ensureSchema();
@@ -43,16 +69,12 @@ let TranscriptionProcessor = class TranscriptionProcessor {
             const payload = job.data;
             try {
                 await this.repo.updateStatus(payload.jobId, 'TRANSCRIBING');
-                const transcriptText = [
-                    `lectureId=${payload.lectureId}`,
-                    `sourceType=${payload.sourceType}`,
-                    `language=${payload.language}`,
-                    `storagePath=${payload.storagePath}`,
-                    payload.sourceUrl ? `sourceUrl=${payload.sourceUrl}` : '',
-                    'transcript=This is a placeholder transcript produced by the MVP transcription worker.'
-                ]
-                    .filter(Boolean)
-                    .join('\n');
+                const transcriptResult = await transcribeWithRetry(this.provider, {
+                    artifactsDir: this.env.ARTIFACTS_DIR,
+                    storagePath: payload.storagePath,
+                    requestedLanguage: payload.language
+                }, this.env.TRANSCRIPTION_PROVIDER_RETRY_ATTEMPTS, this.env.TRANSCRIPTION_PROVIDER_RETRY_DELAY_MS);
+                const transcriptText = transcriptResult.text;
                 const chunkPlan = (0, chunking_1.planChunking)(transcriptText.length, {
                     chunkSizeChars: this.env.TRANSCRIPTION_CHUNK_SIZE_CHARS,
                     maxParallelChunks: this.env.TRANSCRIPTION_MAX_PARALLEL_CHUNKS,
@@ -60,9 +82,10 @@ let TranscriptionProcessor = class TranscriptionProcessor {
                 });
                 await (0, chunking_1.simulateChunkProcessing)(chunkPlan, this.env.TRANSCRIPTION_CHUNK_DELAY_MS);
                 console.log(`transcription chunk plan lecture=${payload.lectureId} chunks=${chunkPlan.chunkCount} waves=${chunkPlan.waves} estimatedMs=${chunkPlan.estimatedLatencyMs}`);
-                const transcriptRelativePath = node_path_1.default.join('transcripts', `${payload.lectureId}.txt`);
-                await (0, pipeline_1.writeArtifact)(this.env.ARTIFACTS_DIR, transcriptRelativePath, transcriptText);
-                await this.repo.saveTranscript(payload.jobId, transcriptRelativePath, transcriptText);
+                const transcriptRelativePath = node_path_1.default.join('transcripts', `${payload.lectureId}.json`);
+                const transcriptPayload = JSON.stringify(transcriptResult, null, 2);
+                await (0, pipeline_1.writeArtifact)(this.env.ARTIFACTS_DIR, transcriptRelativePath, transcriptPayload);
+                await this.repo.saveTranscriptResult(payload.jobId, transcriptRelativePath, transcriptText, transcriptPayload);
                 await this.repo.updateStatus(payload.jobId, 'GENERATING_FLASHCARDS');
                 await this.flashcardQueue?.add('generate', {
                     jobId: payload.jobId,
@@ -73,7 +96,8 @@ let TranscriptionProcessor = class TranscriptionProcessor {
             }
             catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
-                await this.repo.setError(payload.jobId, 'TRANSCRIPTION_ERROR', message);
+                const errorCode = error instanceof transcription_provider_1.TranscriptionProviderError ? error.code : 'TRANSCRIPTION_ERROR';
+                await this.repo.setError(payload.jobId, errorCode, message);
                 throw error;
             }
         }, {

@@ -34,6 +34,7 @@ export interface JobRecord {
   storagePath: string | null;
   transcriptPath: string | null;
   transcriptText: string | null;
+  transcriptJson: string | null;
   flashcardsPath: string | null;
   flashcardsJson: string | null;
   errorCode: string | null;
@@ -66,6 +67,7 @@ async function ensurePipelineSchema(pool: Pool): Promise<void> {
         storage_path TEXT,
         transcript_path TEXT,
         transcript_text TEXT,
+        transcript_json TEXT,
         flashcards_path TEXT,
         flashcards_json TEXT,
         error_code TEXT,
@@ -87,6 +89,9 @@ async function ensurePipelineSchema(pool: Pool): Promise<void> {
 
       ALTER TABLE lecture_jobs
       ADD COLUMN IF NOT EXISTS flashcards_json TEXT;
+
+      ALTER TABLE lecture_jobs
+      ADD COLUMN IF NOT EXISTS transcript_json TEXT;
     `);
   } finally {
     await pool.query(`SELECT pg_advisory_unlock(918273645)`);
@@ -171,15 +176,25 @@ export class PipelineRepository {
     transcriptPath: string,
     transcriptText: string
   ): Promise<void> {
+    await this.saveTranscriptResult(jobId, transcriptPath, transcriptText, null);
+  }
+
+  async saveTranscriptResult(
+    jobId: string,
+    transcriptPath: string,
+    transcriptText: string,
+    transcriptJson: string | null
+  ): Promise<void> {
     await this.pool.query(
       `
       UPDATE lecture_jobs
       SET transcript_path = $2,
           transcript_text = $3,
+          transcript_json = $4,
           updated_at = NOW()
       WHERE job_id = $1
       `,
-      [jobId, transcriptPath, transcriptText]
+      [jobId, transcriptPath, transcriptText, transcriptJson]
     );
   }
 
@@ -221,6 +236,7 @@ export class PipelineRepository {
         storage_path AS "storagePath",
         transcript_path AS "transcriptPath",
         transcript_text AS "transcriptText",
+        transcript_json AS "transcriptJson",
         flashcards_path AS "flashcardsPath",
         flashcards_json AS "flashcardsJson",
         error_code AS "errorCode",

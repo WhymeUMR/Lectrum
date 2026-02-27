@@ -22,7 +22,9 @@ export declare class AppController {
             readonly flashcard: "lec.v1.flashcard";
         };
     };
-    createIngestionJob(parsed: any): Promise<{
+    createIngestionJob(parsed: any, file?: {
+        buffer: Buffer;
+    }): Promise<{
         jobId: `${string}-${string}-${string}-${string}-${string}`;
         lectureId: `${string}-${string}-${string}-${string}-${string}`;
         status: string;
@@ -41,6 +43,7 @@ export declare class AppController {
         lectureId?: undefined;
         transcriptPath?: undefined;
         transcriptText?: undefined;
+        transcript?: undefined;
         flashcardsPath?: undefined;
         flashcards?: undefined;
     } | {
@@ -55,6 +58,7 @@ export declare class AppController {
         lectureId?: undefined;
         transcriptPath?: undefined;
         transcriptText?: undefined;
+        transcript?: undefined;
         flashcardsPath?: undefined;
         flashcards?: undefined;
     } | {
@@ -62,6 +66,7 @@ export declare class AppController {
         lectureId: string;
         transcriptPath: string | null;
         transcriptText: string | null;
+        transcript: any;
         flashcardsPath: string | null;
         flashcards: any;
         status?: undefined;

@@ -64,7 +64,19 @@ const common_1 = require("@nestjs/common");
         }
         catch (e) {
             strict_1.default.ok(e instanceof common_1.BadRequestException);
+            strict_1.default.match(e.message, /file is required/);
         }
+    });
+    (0, node_test_1.test)('createIngestionJob accepts multipart upload file', async () => {
+        let queuePayload;
+        mockQueueService.enqueueIngestion = async (payload) => {
+            queuePayload = payload;
+        };
+        const res = await controller.createIngestionJob({ sourceType: 'upload', requestedLanguage: 'ru', filename: 'lecture.mp3', mimeType: 'audio/mpeg' }, { buffer: Buffer.from('hello-audio') });
+        strict_1.default.ok(res.jobId);
+        strict_1.default.strictEqual(res.status, 'QUEUED');
+        strict_1.default.strictEqual(queuePayload.sourceType, 'upload');
+        strict_1.default.strictEqual(queuePayload.fileBase64, Buffer.from('hello-audio').toString('base64'));
     });
     (0, node_test_1.test)('createIngestionJob passes with valid URL', async () => {
         const res = await controller.createIngestionJob({ sourceType: 'url', sourceUrl: 'http://test.com', requestedLanguage: 'ru', filename: '1.mp3', mimeType: 'audio/mpeg' });

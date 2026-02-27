@@ -21,6 +21,7 @@ export interface JobRecord {
     storagePath: string | null;
     transcriptPath: string | null;
     transcriptText: string | null;
+    transcriptJson: string | null;
     flashcardsPath: string | null;
     flashcardsJson: string | null;
     errorCode: string | null;
@@ -43,6 +44,7 @@ export declare class PipelineRepository {
     updateStatus(jobId: string, status: JobStatus): Promise<void>;
     setSourceStoragePath(jobId: string, storagePath: string): Promise<void>;
     saveTranscript(jobId: string, transcriptPath: string, transcriptText: string): Promise<void>;
+    saveTranscriptResult(jobId: string, transcriptPath: string, transcriptText: string, transcriptJson: string | null): Promise<void>;
     setError(jobId: string, code: string, message: string): Promise<void>;
     saveFlashcards(jobId: string, flashcardsPath: string, flashcardsJson: string): Promise<void>;
     getJob(jobId: string): Promise<JobRecord | null>;

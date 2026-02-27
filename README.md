@@ -52,6 +52,15 @@
 - Латентностный профиль и SLA/alerts: `docs/step-09-latency-profile.md`
 - Верификация шага: `npm run verify:step9`
 
+## Что реализовано на шаге 24
+
+- Интеграция STT-провайдера через абстракцию `TranscriptionProvider`
+- Режимы `mock` и `openai` для `transcription-worker`
+- Таймауты, retry и маппинг ошибок провайдера в доменные `error_code`
+- Сохранение structured transcript результата (`text`, `segments`, `duration`, `language`)
+- Документация конфигурации: `docs/step-24-stt-provider.md`
+- Верификация шага: `npm run verify:step24`
+
 ## Общие пакеты
 
 - `@lecture/contracts` — versioned queue names + payload schemas + queue retention policies
@@ -119,7 +128,21 @@ npm run test:integration
 npm run test:e2e
 npm run test:all
 npm run verify:step9
+npm run verify:step24
 ```
+
+## OpenRouter (только генерация карточек)
+
+Для `flashcard-worker` можно использовать OpenRouter в OpenAI-совместимом режиме:
+
+```bash
+OPENAI_BASE_URL=https://openrouter.ai/api/v1
+OPENAI_MODEL=openai/gpt-oss-120b:free
+OPENAI_API_KEY=<your_openrouter_key>
+```
+
+Важно: транскрибация использует endpoint `/audio/transcriptions` и настраивается отдельно через
+`TRANSCRIPTION_*` переменные (или fallback на `OPENAI_*`).
 
 GitHub Actions (`.github/workflows/test.yml`):
 

@@ -1,0 +1,10 @@
+{
+  "name": "@lecture/frontend-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/server.js",
+  "scripts": {
+    "build": "node -e \"console.log('frontend-prototype build: no-op')\"",
+    "start": "node src/server.js"
+  }
+}

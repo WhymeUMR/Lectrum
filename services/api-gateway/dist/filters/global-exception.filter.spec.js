@@ -63,5 +63,53 @@ const common_1 = require("@nestjs/common");
         strict_1.default.strictEqual(jsonResponse.statusCode, 500);
         strict_1.default.strictEqual(jsonResponse.message, 'Internal server error');
     });
+    (0, node_test_1.test)('should map entity.too.large to 413', () => {
+        filter = new global_exception_filter_1.GlobalExceptionFilter();
+        let jsonStatus;
+        let jsonResponse;
+        const mockResponse = {
+            status: (code) => {
+                jsonStatus = code;
+                return {
+                    json: (body) => {
+                        jsonResponse = body;
+                    }
+                };
+            }
+        };
+        const mockHost = {
+            switchToHttp: () => ({
+                getResponse: () => mockResponse
+            })
+        };
+        filter.catch({ type: 'entity.too.large' }, mockHost);
+        strict_1.default.strictEqual(jsonStatus, 413);
+        strict_1.default.strictEqual(jsonResponse.statusCode, 413);
+        strict_1.default.strictEqual(jsonResponse.message, 'Payload too large');
+    });
+    (0, node_test_1.test)('should map LIMIT_FILE_SIZE to 413', () => {
+        filter = new global_exception_filter_1.GlobalExceptionFilter();
+        let jsonStatus;
+        let jsonResponse;
+        const mockResponse = {
+            status: (code) => {
+                jsonStatus = code;
+                return {
+                    json: (body) => {
+                        jsonResponse = body;
+                    }
+                };
+            }
+        };
+        const mockHost = {
+            switchToHttp: () => ({
+                getResponse: () => mockResponse
+            })
+        };
+        filter.catch({ code: 'LIMIT_FILE_SIZE' }, mockHost);
+        strict_1.default.strictEqual(jsonStatus, 413);
+        strict_1.default.strictEqual(jsonResponse.statusCode, 413);
+        strict_1.default.strictEqual(jsonResponse.message, 'Payload too large');
+    });
 });
 //# sourceMappingURL=global-exception.filter.spec.js.map

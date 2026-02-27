@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ru">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lecture-to-Flashcards Prototype</title>
+</head>
+
+<body>
+  <h1>Lecture-to-Flashcards Prototype</h1>
+
+  <p>Тестовый прототип</p>
+
+  <form id="upload-form">
+    <label for="audio-file">Аудио файл:</label>
+    <input id="audio-file" name="audio-file" type="file" accept="audio/*,video/*" required />
+    <button type="submit">Отправить в обработку</button>
+  </form>
+
+  <h2>Статус</h2>
+  <pre id="status-output">Ожидание...</pre>
+
+  <h2>Ошибки</h2>
+  <pre id="error-output"></pre>
+
+  <h2>Результат JSON</h2>
+  <pre id="result-output"></pre>
+
+  <script>
+    const form = document.getElementById('upload-form');
+    const fileInput = document.getElementById('audio-file');
+    const statusOutput = document.getElementById('status-output');
+    const errorOutput = document.getElementById('error-output');
+    const resultOutput = document.getElementById('result-output');
+
+    function setStatus(text) {
+      statusOutput.textContent = text;
+    }
+
+    function setError(text) {
+      errorOutput.textContent = text || '';
+    }
+
+    function setResult(obj) {
+      resultOutput.textContent = JSON.stringify(obj, null, 2);
+    }
+
+    async function pollResult(jobId) {
+      for (let i = 0; i < 180; i++) {
+        const res = await fetch(`/api/v1/jobs/${jobId}/result`);
+        let data = null;
+        try {
+          data = await res.json();
+        } catch {
+          throw new Error(`Некорректный JSON от backend (status=${res.status})`);
+        }
+
+        if (res.status === 200) {
+          setStatus('COMPLETED');
+          setResult(data);
+          return;
+        }
+
+        if (res.status === 422) {
+          setStatus('FAILED');
+          setError(JSON.stringify(data, null, 2));
+          return;
+        }
+
+        if (res.status === 202) {
+          const progress = typeof data.progress === 'number' ? data.progress : 0;
+          setStatus(`В обработке... ${progress}%`);
+          await new Promise((resolve) =>
+            setTimeout(resolve, Number(data.recommendedPollIntervalMs || 1500))
+          );
+          continue;
+        }
+
+        setError(`Неожиданный статус result API: ${res.status}\n${JSON.stringify(data, null, 2)}`);
+        return;
+      }
+
+      setError('Таймаут ожидания результата');
+    }
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      setError('');
+      setResult({});
+
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) {
+        setError('Выберите файл');
+        return;
+      }
+
+      try {
+        setStatus('Подготовка файла...');
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('sourceType', 'upload');
+        formData.append('filename', file.name);
+        formData.append('mimeType', file.type || 'application/octet-stream');
+        formData.append('requestedLanguage', 'ru');
+
+        setStatus('Отправка в backend...');
+        const ingestRes = await fetch('/api/v1/lectures/ingest', {
+          method: 'POST',
+          body: formData
+        });
+
+        const ingestData = await ingestRes.json();
+        if (!ingestRes.ok) {
+          setStatus(`Ошибка ingest: HTTP ${ingestRes.status}`);
+          setError(JSON.stringify(ingestData, null, 2));
+          return;
+        }
+
+        const jobId = ingestData.jobId;
+        setStatus(`Job создан: ${jobId}`);
+        await pollResult(jobId);
+      } catch (error) {
+        setStatus('Ошибка');
+        setError(error instanceof Error ? error.message : String(error));
+      }
+    });
+  </script>
+</body>
+
+</html>

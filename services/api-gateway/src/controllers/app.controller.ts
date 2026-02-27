@@ -12,8 +12,11 @@ import {
   Post,
   Res,
   ServiceUnavailableException,
+  UploadedFile,
+  UseInterceptors,
   UsePipes
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { QUEUE_NAMES } from '@lecture/contracts';
 import { APP_ENV, AppEnv } from '@lecture/config';
 import { ActiveJobExistsError } from '@lecture/pipeline';
@@ -48,10 +51,18 @@ export class AppController {
   }
 
   @Post('/api/v1/lectures/ingest')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: {
+        fileSize: Number(process.env.UPLOAD_MAX_FILE_SIZE_BYTES || 50 * 1024 * 1024)
+      }
+    })
+  )
   @UsePipes(new ZodValidationPipe(CreateIngestionRequestSchema))
-  async createIngestionJob(@Body() parsed: any) {
-    if (parsed.sourceType === 'upload' && !parsed.fileBase64) {
-      throw new BadRequestException('fileBase64 is required for upload sourceType');
+  async createIngestionJob(@Body() parsed: any, @UploadedFile() file?: { buffer: Buffer }) {
+    const fileBase64 = file?.buffer?.toString('base64') ?? parsed.fileBase64;
+    if (parsed.sourceType === 'upload' && !fileBase64) {
+      throw new BadRequestException('file is required for upload sourceType');
     }
     if (parsed.sourceType === 'url' && !parsed.sourceUrl) {
       throw new BadRequestException('sourceUrl is required for url sourceType');
@@ -96,7 +107,7 @@ export class AppController {
         mimeType: parsed.mimeType,
         requestedLanguage: parsed.requestedLanguage ?? 'ru',
         uploadedAt: new Date().toISOString(),
-        fileBase64: parsed.fileBase64
+        fileBase64
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -156,6 +167,7 @@ export class AppController {
       lectureId: job.lectureId,
       transcriptPath: job.transcriptPath,
       transcriptText: job.transcriptText,
+      transcript: job.transcriptJson ? JSON.parse(job.transcriptJson) : null,
       flashcardsPath: job.flashcardsPath,
       flashcards: job.flashcardsJson ? JSON.parse(job.flashcardsJson) : null
     };

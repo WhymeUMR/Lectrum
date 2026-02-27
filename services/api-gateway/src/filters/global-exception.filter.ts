@@ -16,10 +16,29 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       });
     }
 
+    if (this.isPayloadTooLarge(exception)) {
+      return response.status(HttpStatus.PAYLOAD_TOO_LARGE).json({
+        statusCode: HttpStatus.PAYLOAD_TOO_LARGE,
+        message: 'Payload too large'
+      });
+    }
+
     console.error('Unhandled Exception:', exception);
     return response.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
       statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
       message: 'Internal server error'
     });
+  }
+
+  private isPayloadTooLarge(exception: unknown): boolean {
+    if (!exception || typeof exception !== 'object') {
+      return false;
+    }
+    const candidate = exception as { type?: string; name?: string; code?: string };
+    return (
+      candidate.type === 'entity.too.large' ||
+      candidate.name === 'PayloadTooLargeError' ||
+      candidate.code === 'LIMIT_FILE_SIZE'
+    );
   }
 }

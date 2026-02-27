@@ -63,7 +63,25 @@ describe('AppController', () => {
             assert.fail('Should fail without file');
         } catch (e) {
             assert.ok(e instanceof BadRequestException);
+            assert.match((e as BadRequestException).message, /file is required/);
         }
+    });
+
+    test('createIngestionJob accepts multipart upload file', async () => {
+        let queuePayload: any;
+        mockQueueService.enqueueIngestion = async (payload: any) => {
+            queuePayload = payload;
+        };
+
+        const res = await controller.createIngestionJob(
+            { sourceType: 'upload', requestedLanguage: 'ru', filename: 'lecture.mp3', mimeType: 'audio/mpeg' },
+            { buffer: Buffer.from('hello-audio') } as any
+        );
+
+        assert.ok(res.jobId);
+        assert.strictEqual(res.status, 'QUEUED');
+        assert.strictEqual(queuePayload.sourceType, 'upload');
+        assert.strictEqual(queuePayload.fileBase64, Buffer.from('hello-audio').toString('base64'));
     });
 
     test('createIngestionJob passes with valid URL', async () => {

@@ -32,6 +32,7 @@ async function ensurePipelineSchema(pool) {
         storage_path TEXT,
         transcript_path TEXT,
         transcript_text TEXT,
+        transcript_json TEXT,
         flashcards_path TEXT,
         flashcards_json TEXT,
         error_code TEXT,
@@ -53,6 +54,9 @@ async function ensurePipelineSchema(pool) {
 
       ALTER TABLE lecture_jobs
       ADD COLUMN IF NOT EXISTS flashcards_json TEXT;
+
+      ALTER TABLE lecture_jobs
+      ADD COLUMN IF NOT EXISTS transcript_json TEXT;
     `);
     }
     finally {
@@ -116,13 +120,17 @@ class PipelineRepository {
         await this.pool.query(`UPDATE lecture_jobs SET storage_path = $2, updated_at = NOW() WHERE job_id = $1`, [jobId, storagePath]);
     }
     async saveTranscript(jobId, transcriptPath, transcriptText) {
+        await this.saveTranscriptResult(jobId, transcriptPath, transcriptText, null);
+    }
+    async saveTranscriptResult(jobId, transcriptPath, transcriptText, transcriptJson) {
         await this.pool.query(`
       UPDATE lecture_jobs
       SET transcript_path = $2,
           transcript_text = $3,
+          transcript_json = $4,
           updated_at = NOW()
       WHERE job_id = $1
-      `, [jobId, transcriptPath, transcriptText]);
+      `, [jobId, transcriptPath, transcriptText, transcriptJson]);
     }
     async setError(jobId, code, message) {
         await this.pool.query(`
@@ -153,6 +161,7 @@ class PipelineRepository {
         storage_path AS "storagePath",
         transcript_path AS "transcriptPath",
         transcript_text AS "transcriptText",
+        transcript_json AS "transcriptJson",
         flashcards_path AS "flashcardsPath",
         flashcards_json AS "flashcardsJson",
         error_code AS "errorCode",

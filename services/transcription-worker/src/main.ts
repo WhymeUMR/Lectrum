@@ -7,17 +7,54 @@ import { QUEUE_NAMES, QUEUE_POLICIES, TranscriptionJobPayload } from '@lecture/c
 import { APP_ENV, AppEnv, SharedConfigModule, buildRedisConnection } from '@lecture/config';
 import { PipelineRepository, writeArtifact } from '@lecture/pipeline';
 import { planChunking, simulateChunkProcessing } from './chunking';
+import {
+  createTranscriptionProvider,
+  TranscriptionProvider,
+  TranscriptionProviderError,
+  TranscriptResult
+} from './transcription-provider';
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function transcribeWithRetry(
+  provider: TranscriptionProvider,
+  req: Parameters<TranscriptionProvider['transcribe']>[0],
+  attempts: number,
+  retryDelayMs: number
+): Promise<TranscriptResult> {
+  let lastError: unknown;
+  for (let i = 1; i <= attempts; i += 1) {
+    try {
+      return await provider.transcribe(req);
+    } catch (error) {
+      lastError = error;
+      if (i >= attempts) break;
+      await sleep(retryDelayMs * i);
+    }
+  }
+  throw lastError;
+}
 
 class TranscriptionProcessor implements OnModuleInit, OnModuleDestroy {
   private worker?: Worker;
   private flashcardQueue?: Queue;
   private repo: PipelineRepository;
+  private provider: TranscriptionProvider;
 
   constructor(@Inject(APP_ENV) private readonly env: AppEnv) {
     if (!env.DATABASE_URL) {
       throw new Error('DATABASE_URL is required for transcription-worker');
     }
     this.repo = PipelineRepository.fromDatabaseUrl(env.DATABASE_URL);
+    this.provider = createTranscriptionProvider({
+      TRANSCRIPTION_PROVIDER: env.TRANSCRIPTION_PROVIDER,
+      OPENAI_API_KEY: env.TRANSCRIPTION_OPENAI_API_KEY ?? env.OPENAI_API_KEY,
+      OPENAI_BASE_URL: env.TRANSCRIPTION_OPENAI_BASE_URL ?? env.OPENAI_BASE_URL,
+      TRANSCRIPTION_OPENAI_MODEL: env.TRANSCRIPTION_OPENAI_MODEL,
+      TRANSCRIPTION_PROVIDER_TIMEOUT_MS: env.TRANSCRIPTION_PROVIDER_TIMEOUT_MS
+    });
   }
 
   async onModuleInit() {
@@ -35,16 +72,17 @@ class TranscriptionProcessor implements OnModuleInit, OnModuleDestroy {
         try {
           await this.repo.updateStatus(payload.jobId, 'TRANSCRIBING');
 
-          const transcriptText = [
-            `lectureId=${payload.lectureId}`,
-            `sourceType=${payload.sourceType}`,
-            `language=${payload.language}`,
-            `storagePath=${payload.storagePath}`,
-            payload.sourceUrl ? `sourceUrl=${payload.sourceUrl}` : '',
-            'transcript=This is a placeholder transcript produced by the MVP transcription worker.'
-          ]
-            .filter(Boolean)
-            .join('\n');
+          const transcriptResult = await transcribeWithRetry(
+            this.provider,
+            {
+              artifactsDir: this.env.ARTIFACTS_DIR,
+              storagePath: payload.storagePath,
+              requestedLanguage: payload.language
+            },
+            this.env.TRANSCRIPTION_PROVIDER_RETRY_ATTEMPTS,
+            this.env.TRANSCRIPTION_PROVIDER_RETRY_DELAY_MS
+          );
+          const transcriptText = transcriptResult.text;
 
           const chunkPlan = planChunking(transcriptText.length, {
             chunkSizeChars: this.env.TRANSCRIPTION_CHUNK_SIZE_CHARS,
@@ -56,10 +94,16 @@ class TranscriptionProcessor implements OnModuleInit, OnModuleDestroy {
             `transcription chunk plan lecture=${payload.lectureId} chunks=${chunkPlan.chunkCount} waves=${chunkPlan.waves} estimatedMs=${chunkPlan.estimatedLatencyMs}`
           );
 
-          const transcriptRelativePath = path.join('transcripts', `${payload.lectureId}.txt`);
-          await writeArtifact(this.env.ARTIFACTS_DIR, transcriptRelativePath, transcriptText);
+          const transcriptRelativePath = path.join('transcripts', `${payload.lectureId}.json`);
+          const transcriptPayload = JSON.stringify(transcriptResult, null, 2);
+          await writeArtifact(this.env.ARTIFACTS_DIR, transcriptRelativePath, transcriptPayload);
 
-          await this.repo.saveTranscript(payload.jobId, transcriptRelativePath, transcriptText);
+          await this.repo.saveTranscriptResult(
+            payload.jobId,
+            transcriptRelativePath,
+            transcriptText,
+            transcriptPayload
+          );
           await this.repo.updateStatus(payload.jobId, 'GENERATING_FLASHCARDS');
 
           await this.flashcardQueue?.add('generate', {
@@ -70,7 +114,9 @@ class TranscriptionProcessor implements OnModuleInit, OnModuleDestroy {
           });
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          await this.repo.setError(payload.jobId, 'TRANSCRIPTION_ERROR', message);
+          const errorCode =
+            error instanceof TranscriptionProviderError ? error.code : 'TRANSCRIPTION_ERROR';
+          await this.repo.setError(payload.jobId, errorCode, message);
           throw error;
         }
       },

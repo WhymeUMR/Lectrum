@@ -6,6 +6,7 @@ services=(
   "ingestion-service:3101"
   "transcription-worker:3102"
   "flashcard-worker:3103"
+  "frontend-prototype:80"
 )
 
 echo "Checking docker compose service health..."

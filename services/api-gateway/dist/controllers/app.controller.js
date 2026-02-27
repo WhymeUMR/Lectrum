@@ -15,6 +15,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.AppController = void 0;
 const node_crypto_1 = require("node:crypto");
 const common_1 = require("@nestjs/common");
+const platform_express_1 = require("@nestjs/platform-express");
 const contracts_1 = require("@lecture/contracts");
 const config_1 = require("@lecture/config");
 const pipeline_1 = require("@lecture/pipeline");
@@ -40,9 +41,10 @@ let AppController = class AppController {
     ready() {
         return { status: 'ready', queues: contracts_1.QUEUE_NAMES };
     }
-    async createIngestionJob(parsed) {
-        if (parsed.sourceType === 'upload' && !parsed.fileBase64) {
-            throw new common_1.BadRequestException('fileBase64 is required for upload sourceType');
+    async createIngestionJob(parsed, file) {
+        const fileBase64 = file?.buffer?.toString('base64') ?? parsed.fileBase64;
+        if (parsed.sourceType === 'upload' && !fileBase64) {
+            throw new common_1.BadRequestException('file is required for upload sourceType');
         }
         if (parsed.sourceType === 'url' && !parsed.sourceUrl) {
             throw new common_1.BadRequestException('sourceUrl is required for url sourceType');
@@ -80,7 +82,7 @@ let AppController = class AppController {
                 mimeType: parsed.mimeType,
                 requestedLanguage: parsed.requestedLanguage ?? 'ru',
                 uploadedAt: new Date().toISOString(),
-                fileBase64: parsed.fileBase64
+                fileBase64
             });
         }
         catch (error) {
@@ -133,6 +135,7 @@ let AppController = class AppController {
             lectureId: job.lectureId,
             transcriptPath: job.transcriptPath,
             transcriptText: job.transcriptText,
+            transcript: job.transcriptJson ? JSON.parse(job.transcriptJson) : null,
             flashcardsPath: job.flashcardsPath,
             flashcards: job.flashcardsJson ? JSON.parse(job.flashcardsJson) : null
         };
@@ -165,10 +168,16 @@ __decorate([
 ], AppController.prototype, "ready", null);
 __decorate([
     (0, common_1.Post)('/api/v1/lectures/ingest'),
+    (0, common_1.UseInterceptors)((0, platform_express_1.FileInterceptor)('file', {
+        limits: {
+            fileSize: Number(process.env.UPLOAD_MAX_FILE_SIZE_BYTES || 50 * 1024 * 1024)
+        }
+    })),
     (0, common_1.UsePipes)(new zod_validation_pipe_1.ZodValidationPipe(create_ingestion_request_schema_1.CreateIngestionRequestSchema)),
     __param(0, (0, common_1.Body)()),
+    __param(1, (0, common_1.UploadedFile)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
 ], AppController.prototype, "createIngestionJob", null);
 __decorate([
