@@ -17,6 +17,7 @@ const node_crypto_1 = require("node:crypto");
 const common_1 = require("@nestjs/common");
 const contracts_1 = require("@lecture/contracts");
 const config_1 = require("@lecture/config");
+const pipeline_1 = require("@lecture/pipeline");
 const queue_service_1 = require("../services/queue.service");
 const job_store_service_1 = require("../services/job-store.service");
 const create_ingestion_request_schema_1 = require("../dto/create-ingestion-request.schema");
@@ -46,17 +47,29 @@ let AppController = class AppController {
         if (parsed.sourceType === 'url' && !parsed.sourceUrl) {
             throw new common_1.BadRequestException('sourceUrl is required for url sourceType');
         }
+        const activeJob = await this.store.repo.getActiveJob();
+        if (activeJob) {
+            throw new common_1.ConflictException(`Another lecture is still processing (jobId=${activeJob.jobId}, status=${activeJob.status}). Wait until it is COMPLETED or FAILED.`);
+        }
         const lectureId = (0, node_crypto_1.randomUUID)();
         const jobId = (0, node_crypto_1.randomUUID)();
-        await this.store.repo.createJob({
-            jobId,
-            lectureId,
-            sourceType: parsed.sourceType,
-            filename: parsed.filename,
-            mimeType: parsed.mimeType,
-            sourceUrl: parsed.sourceUrl,
-            requestedLanguage: parsed.requestedLanguage ?? 'ru'
-        });
+        try {
+            await this.store.repo.createJob({
+                jobId,
+                lectureId,
+                sourceType: parsed.sourceType,
+                filename: parsed.filename,
+                mimeType: parsed.mimeType,
+                sourceUrl: parsed.sourceUrl,
+                requestedLanguage: parsed.requestedLanguage ?? 'ru'
+            });
+        }
+        catch (error) {
+            if (error instanceof pipeline_1.ActiveJobExistsError) {
+                throw new common_1.ConflictException('Another lecture is still processing. Wait until the active job is COMPLETED or FAILED.');
+            }
+            throw error;
+        }
         await this.queueService.enqueueIngestion({
             jobId,
             lectureId,

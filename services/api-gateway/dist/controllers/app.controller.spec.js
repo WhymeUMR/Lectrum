@@ -22,6 +22,7 @@ const common_1 = require("@nestjs/common");
     };
     mockJobStore = {
         repo: {
+            getActiveJob: async () => null,
             createJob: async () => { },
             getJob: async (id) => {
                 if (id === '123')
@@ -65,6 +66,19 @@ const common_1 = require("@nestjs/common");
         const res = await controller.createIngestionJob({ sourceType: 'url', sourceUrl: 'http://test.com', requestedLanguage: 'ru', filename: '1.mp3', mimeType: 'audio/mpeg' });
         strict_1.default.ok(res.jobId);
         strict_1.default.strictEqual(res.status, 'QUEUED');
+    });
+    (0, node_test_1.test)('createIngestionJob blocks when active job exists', async () => {
+        mockJobStore.repo.getActiveJob = async () => ({ jobId: 'busy', status: 'INGESTING', lectureId: 'l1' });
+        try {
+            await controller.createIngestionJob({ sourceType: 'url', sourceUrl: 'http://test.com', requestedLanguage: 'ru', filename: '1.mp3', mimeType: 'audio/mpeg' });
+            strict_1.default.fail('Should fail while active job exists');
+        }
+        catch (e) {
+            strict_1.default.ok(e instanceof common_1.ConflictException);
+        }
+        finally {
+            mockJobStore.repo.getActiveJob = async () => null;
+        }
     });
     (0, node_test_1.test)('getJobResult returns transcript on COMPLETED', async () => {
         const res = await controller.getJobResult('123');

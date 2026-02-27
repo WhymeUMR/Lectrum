@@ -1,6 +1,6 @@
 # Step 06 Validation Report
 
-Date: 2026-02-27T13:02:28.694Z
+Date: 2026-02-27T14:53:31.201Z
 
 - Sample size: 40
 - Primary schema pass rate: 95.0%

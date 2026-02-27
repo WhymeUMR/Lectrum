@@ -24,6 +24,7 @@ const contracts_1 = require("@lecture/contracts");
 const config_1 = require("@lecture/config");
 const pipeline_1 = require("@lecture/pipeline");
 const flashcard_generation_1 = require("./flashcard-generation");
+const quality_gates_1 = require("./quality-gates");
 let FlashcardProcessor = class FlashcardProcessor {
     constructor(env) {
         this.env = env;
@@ -45,11 +46,16 @@ let FlashcardProcessor = class FlashcardProcessor {
                     baseUrl: this.env.OPENAI_BASE_URL
                 });
                 const deck = result.deck;
+                const quality = (0, quality_gates_1.evaluateQualityGates)(deck);
+                if (!quality.accepted) {
+                    await this.repo.setError(payload.jobId, 'FLASHCARD_QUALITY_REJECTED', quality.reasons.join('; '));
+                    return;
+                }
                 const flashcardsJson = JSON.stringify(deck, null, 2);
                 const flashcardsPath = node_path_1.default.join('flashcards', `${payload.lectureId}.json`);
                 await (0, pipeline_1.writeArtifact)(this.env.ARTIFACTS_DIR, flashcardsPath, flashcardsJson);
                 await this.repo.saveFlashcards(payload.jobId, flashcardsPath, flashcardsJson);
-                console.log(`flashcard generation done lecture=${payload.lectureId} path=${result.report.path} attempts=${result.report.attempts}`);
+                console.log(`flashcard generation done lecture=${payload.lectureId} path=${result.report.path} attempts=${result.report.attempts} quality=${quality.score}`);
                 await this.repo.updateStatus(payload.jobId, 'COMPLETED');
             }
             catch (error) {

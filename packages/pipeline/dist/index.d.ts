@@ -29,6 +29,9 @@ export interface JobRecord {
     createdAt: string;
     updatedAt: string;
 }
+export declare class ActiveJobExistsError extends Error {
+    constructor(message: string);
+}
 export declare class PipelineRepository {
     private readonly pool;
     constructor(pool: Pool);
@@ -36,6 +39,7 @@ export declare class PipelineRepository {
     ensureSchema(): Promise<void>;
     close(): Promise<void>;
     createJob(input: CreateJobInput): Promise<void>;
+    getActiveJob(): Promise<Pick<JobRecord, 'jobId' | 'status' | 'lectureId'> | null>;
     updateStatus(jobId: string, status: JobStatus): Promise<void>;
     setSourceStoragePath(jobId: string, storagePath: string): Promise<void>;
     saveTranscript(jobId: string, transcriptPath: string, transcriptText: string): Promise<void>;

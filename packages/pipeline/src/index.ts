@@ -43,6 +43,13 @@ export interface JobRecord {
   updatedAt: string;
 }
 
+export class ActiveJobExistsError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ActiveJobExistsError';
+  }
+}
+
 async function ensurePipelineSchema(pool: Pool): Promise<void> {
   // Serialize schema initialization across concurrent service startups.
   await pool.query(`SELECT pg_advisory_lock(918273645)`);
@@ -70,6 +77,9 @@ async function ensurePipelineSchema(pool: Pool): Promise<void> {
 
       CREATE INDEX IF NOT EXISTS idx_lecture_jobs_lecture_id ON lecture_jobs(lecture_id);
       CREATE INDEX IF NOT EXISTS idx_lecture_jobs_status ON lecture_jobs(status);
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_single_active_job
+      ON lecture_jobs ((1))
+      WHERE status NOT IN ('COMPLETED', 'FAILED');
     `);
     await pool.query(`
       ALTER TABLE lecture_jobs
@@ -99,22 +109,47 @@ export class PipelineRepository {
   }
 
   async createJob(input: CreateJobInput): Promise<void> {
-    await this.pool.query(
+    try {
+      await this.pool.query(
+        `
+        INSERT INTO lecture_jobs (
+          job_id, lecture_id, status, source_type, filename, mime_type, source_url, requested_language
+        ) VALUES ($1, $2, 'QUEUED', $3, $4, $5, $6, $7)
+        `,
+        [
+          input.jobId,
+          input.lectureId,
+          input.sourceType,
+          input.filename,
+          input.mimeType ?? null,
+          input.sourceUrl ?? null,
+          input.requestedLanguage
+        ]
+      );
+    } catch (error) {
+      const err = error as { code?: string; constraint?: string };
+      if (err.code === '23505' && err.constraint === 'uq_single_active_job') {
+        throw new ActiveJobExistsError('Another lecture is already being processed');
+      }
+      throw error;
+    }
+  }
+
+  async getActiveJob(): Promise<Pick<JobRecord, 'jobId' | 'status' | 'lectureId'> | null> {
+    const result = await this.pool.query(
       `
-      INSERT INTO lecture_jobs (
-        job_id, lecture_id, status, source_type, filename, mime_type, source_url, requested_language
-      ) VALUES ($1, $2, 'QUEUED', $3, $4, $5, $6, $7)
-      `,
-      [
-        input.jobId,
-        input.lectureId,
-        input.sourceType,
-        input.filename,
-        input.mimeType ?? null,
-        input.sourceUrl ?? null,
-        input.requestedLanguage
-      ]
+      SELECT
+        job_id AS "jobId",
+        status,
+        lecture_id AS "lectureId"
+      FROM lecture_jobs
+      WHERE status NOT IN ('COMPLETED', 'FAILED')
+      ORDER BY created_at ASC
+      LIMIT 1
+      `
     );
+
+    return (result.rows[0] as Pick<JobRecord, 'jobId' | 'status' | 'lectureId'> | undefined) ?? null;
   }
 
   async updateStatus(jobId: string, status: JobStatus): Promise<void> {

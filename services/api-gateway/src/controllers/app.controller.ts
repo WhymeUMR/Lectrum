@@ -2,16 +2,22 @@ import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   Body,
+  ConflictException,
   Controller,
   Get,
+  HttpStatus,
   Inject,
   NotFoundException,
   Param,
   Post,
+  Res,
+  ServiceUnavailableException,
   UsePipes
 } from '@nestjs/common';
 import { QUEUE_NAMES } from '@lecture/contracts';
 import { APP_ENV, AppEnv } from '@lecture/config';
+import { ActiveJobExistsError } from '@lecture/pipeline';
+import { Response } from 'express';
 import { QueueService } from '../services/queue.service';
 import { JobStoreService } from '../services/job-store.service';
 import { CreateIngestionRequestSchema } from '../dto/create-ingestion-request.schema';
@@ -51,30 +57,52 @@ export class AppController {
       throw new BadRequestException('sourceUrl is required for url sourceType');
     }
 
+    const activeJob = await this.store.repo.getActiveJob();
+    if (activeJob) {
+      throw new ConflictException(
+        `Another lecture is still processing (jobId=${activeJob.jobId}, status=${activeJob.status}). Wait until it is COMPLETED or FAILED.`
+      );
+    }
+
     const lectureId = randomUUID();
     const jobId = randomUUID();
 
-    await this.store.repo.createJob({
-      jobId,
-      lectureId,
-      sourceType: parsed.sourceType,
-      filename: parsed.filename,
-      mimeType: parsed.mimeType,
-      sourceUrl: parsed.sourceUrl,
-      requestedLanguage: parsed.requestedLanguage ?? 'ru'
-    });
+    try {
+      await this.store.repo.createJob({
+        jobId,
+        lectureId,
+        sourceType: parsed.sourceType,
+        filename: parsed.filename,
+        mimeType: parsed.mimeType,
+        sourceUrl: parsed.sourceUrl,
+        requestedLanguage: parsed.requestedLanguage ?? 'ru'
+      });
+    } catch (error) {
+      if (error instanceof ActiveJobExistsError) {
+        throw new ConflictException(
+          'Another lecture is still processing. Wait until the active job is COMPLETED or FAILED.'
+        );
+      }
+      throw error;
+    }
 
-    await this.queueService.enqueueIngestion({
-      jobId,
-      lectureId,
-      sourceType: parsed.sourceType,
-      sourceUrl: parsed.sourceUrl,
-      filename: parsed.filename,
-      mimeType: parsed.mimeType,
-      requestedLanguage: parsed.requestedLanguage ?? 'ru',
-      uploadedAt: new Date().toISOString(),
-      fileBase64: parsed.fileBase64
-    });
+    try {
+      await this.queueService.enqueueIngestion({
+        jobId,
+        lectureId,
+        sourceType: parsed.sourceType,
+        sourceUrl: parsed.sourceUrl,
+        filename: parsed.filename,
+        mimeType: parsed.mimeType,
+        requestedLanguage: parsed.requestedLanguage ?? 'ru',
+        uploadedAt: new Date().toISOString(),
+        fileBase64: parsed.fileBase64
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.store.repo.setError(jobId, 'INGESTION_ENQUEUE_ERROR', message);
+      throw new ServiceUnavailableException('Queue is temporarily unavailable');
+    }
 
     return {
       jobId,
@@ -94,13 +122,25 @@ export class AppController {
   }
 
   @Get('/api/v1/jobs/:jobId/result')
-  async getJobResult(@Param('jobId') jobId: string) {
+  async getJobResult(@Param('jobId') jobId: string, @Res({ passthrough: true }) response: Response) {
     const job = await this.store.repo.getJob(jobId);
     if (!job) {
       throw new NotFoundException(`Job ${jobId} not found`);
     }
 
+    if (job.status === 'FAILED') {
+      response.status(HttpStatus.UNPROCESSABLE_ENTITY);
+      return {
+        jobId,
+        status: job.status,
+        message: 'Job processing failed',
+        errorCode: job.errorCode,
+        errorMessage: job.errorMessage
+      };
+    }
+
     if (job.status !== 'COMPLETED') {
+      response.status(HttpStatus.ACCEPTED);
       return {
         jobId,
         status: job.status,

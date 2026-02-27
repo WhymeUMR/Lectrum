@@ -7,6 +7,7 @@ import { FlashcardGenerationJobPayload, QUEUE_NAMES, QUEUE_POLICIES } from '@lec
 import { APP_ENV, AppEnv, SharedConfigModule, buildRedisConnection } from '@lecture/config';
 import { PipelineRepository, writeArtifact } from '@lecture/pipeline';
 import { generateFlashcardDeck } from './flashcard-generation';
+import { evaluateQualityGates } from './quality-gates';
 
 class FlashcardProcessor implements OnModuleInit, OnModuleDestroy {
   private worker?: Worker;
@@ -34,13 +35,22 @@ class FlashcardProcessor implements OnModuleInit, OnModuleDestroy {
             baseUrl: this.env.OPENAI_BASE_URL
           });
           const deck = result.deck;
+          const quality = evaluateQualityGates(deck);
+          if (!quality.accepted) {
+            await this.repo.setError(
+              payload.jobId,
+              'FLASHCARD_QUALITY_REJECTED',
+              quality.reasons.join('; ')
+            );
+            return;
+          }
           const flashcardsJson = JSON.stringify(deck, null, 2);
           const flashcardsPath = path.join('flashcards', `${payload.lectureId}.json`);
 
           await writeArtifact(this.env.ARTIFACTS_DIR, flashcardsPath, flashcardsJson);
           await this.repo.saveFlashcards(payload.jobId, flashcardsPath, flashcardsJson);
           console.log(
-            `flashcard generation done lecture=${payload.lectureId} path=${result.report.path} attempts=${result.report.attempts}`
+            `flashcard generation done lecture=${payload.lectureId} path=${result.report.path} attempts=${result.report.attempts} quality=${quality.score}`
           );
           await this.repo.updateStatus(payload.jobId, 'COMPLETED');
         } catch (error) {

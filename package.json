@@ -9,12 +9,18 @@
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
+    "test:unit": "npm run build && node --test tests/unit/*.test.cjs",
+    "test:integration": "npm run verify:step6 && npm run verify:step8",
+    "test:e2e": "bash ./scripts/e2e-local.sh",
+    "test:all": "npm run lint && npm run test && npm run test:unit && npm run test:integration",
     "verify:step6": "npm run build && node scripts/verify-step6.mjs",
+    "verify:step8": "npm run build && node scripts/verify-step8.mjs",
     "test:gateway": "tsx --tsconfig services/api-gateway/tsconfig.json --test services/api-gateway/src/**/*.spec.ts",
-    "format": "prettier --write \"**/*.{ts,cjs,js}\"",
-    "lint": "eslint \"**/*.{ts,cjs,js}\""
+    "format": "prettier --write \"**/*.{ts,cjs,js,mjs}\"",
+    "lint": "eslint \"services/**/src/**/*.ts\" \"packages/**/src/**/*.ts\" \"scripts/**/*.{js,mjs}\" \"tests/**/*.cjs\""
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/express": "^5.0.6",
     "@typescript-eslint/eslint-plugin": "^8.56.1",
     "@typescript-eslint/parser": "^8.56.1",

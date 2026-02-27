@@ -3,12 +3,19 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.PipelineRepository = void 0;
+exports.PipelineRepository = exports.ActiveJobExistsError = void 0;
 exports.writeArtifact = writeArtifact;
 exports.decodeBase64Payload = decodeBase64Payload;
 const promises_1 = require("node:fs/promises");
 const node_path_1 = __importDefault(require("node:path"));
 const pg_1 = require("pg");
+class ActiveJobExistsError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = 'ActiveJobExistsError';
+    }
+}
+exports.ActiveJobExistsError = ActiveJobExistsError;
 async function ensurePipelineSchema(pool) {
     // Serialize schema initialization across concurrent service startups.
     await pool.query(`SELECT pg_advisory_lock(918273645)`);
@@ -36,6 +43,9 @@ async function ensurePipelineSchema(pool) {
 
       CREATE INDEX IF NOT EXISTS idx_lecture_jobs_lecture_id ON lecture_jobs(lecture_id);
       CREATE INDEX IF NOT EXISTS idx_lecture_jobs_status ON lecture_jobs(status);
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_single_active_job
+      ON lecture_jobs ((1))
+      WHERE status NOT IN ('COMPLETED', 'FAILED');
     `);
         await pool.query(`
       ALTER TABLE lecture_jobs
@@ -63,19 +73,41 @@ class PipelineRepository {
         await this.pool.end();
     }
     async createJob(input) {
-        await this.pool.query(`
-      INSERT INTO lecture_jobs (
-        job_id, lecture_id, status, source_type, filename, mime_type, source_url, requested_language
-      ) VALUES ($1, $2, 'QUEUED', $3, $4, $5, $6, $7)
-      `, [
-            input.jobId,
-            input.lectureId,
-            input.sourceType,
-            input.filename,
-            input.mimeType ?? null,
-            input.sourceUrl ?? null,
-            input.requestedLanguage
-        ]);
+        try {
+            await this.pool.query(`
+        INSERT INTO lecture_jobs (
+          job_id, lecture_id, status, source_type, filename, mime_type, source_url, requested_language
+        ) VALUES ($1, $2, 'QUEUED', $3, $4, $5, $6, $7)
+        `, [
+                input.jobId,
+                input.lectureId,
+                input.sourceType,
+                input.filename,
+                input.mimeType ?? null,
+                input.sourceUrl ?? null,
+                input.requestedLanguage
+            ]);
+        }
+        catch (error) {
+            const err = error;
+            if (err.code === '23505' && err.constraint === 'uq_single_active_job') {
+                throw new ActiveJobExistsError('Another lecture is already being processed');
+            }
+            throw error;
+        }
+    }
+    async getActiveJob() {
+        const result = await this.pool.query(`
+      SELECT
+        job_id AS "jobId",
+        status,
+        lecture_id AS "lectureId"
+      FROM lecture_jobs
+      WHERE status NOT IN ('COMPLETED', 'FAILED')
+      ORDER BY created_at ASC
+      LIMIT 1
+      `);
+        return result.rows[0] ?? null;
     }
     async updateStatus(jobId, status) {
         await this.pool.query(`UPDATE lecture_jobs SET status = $2, updated_at = NOW() WHERE job_id = $1`, [jobId, status]);

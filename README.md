@@ -37,6 +37,13 @@
 - Явно зафиксированы блокеры, критический путь и владельцы связей зависимостей
 - Добавлены проверяемые контрольные точки по вехам пайплайна
 
+## Что реализовано на шаге 8
+
+- Каталог типовых нарушений JSON и политика снижения риска: `docs/step-08-json-validity-risk.md`
+- Детерминированный обработчик невалидного вывода: `primary -> retry -> repair -> fallback`
+- Quality gates и политика отклонения (`FLASHCARD_QUALITY_REJECTED`)
+- Измерение baseline/target метрик: `npm run verify:step8`
+
 ## Общие пакеты
 
 - `@lecture/contracts` — versioned queue names + payload schemas + queue retention policies
@@ -87,6 +94,22 @@ Health endpoints:
 ```bash
 make test
 make build
+make lint
+make test-unit
+make test-integration
+# полный e2e через docker compose:
+make test-e2e
+```
+
+NPM команды:
+
+```bash
+npm run lint
+npm run test
+npm run test:unit
+npm run test:integration
+npm run test:e2e
+npm run test:all
 ```
 
 GitHub Actions (`.github/workflows/test.yml`):

@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { GlobalExceptionFilter } from './global-exception.filter';
-import { BadRequestException, InternalServerErrorException } from '@nestjs/common';
+import { BadRequestException } from '@nestjs/common';
 
 describe('GlobalExceptionFilter', () => {
     let filter: GlobalExceptionFilter;
