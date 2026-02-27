@@ -5,43 +5,121 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Lecture-to-Flashcards Prototype</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 0;
+      line-height: 1.4;
+    }
+
+    nav {
+      position: sticky;
+      top: 0;
+      background: #f4f4f4;
+      border-bottom: 1px solid #ddd;
+      padding: 10px 16px;
+      z-index: 10;
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    nav a {
+      color: #111;
+      text-decoration: none;
+      font-size: 14px;
+    }
+
+    main {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+
+    section {
+      margin-bottom: 24px;
+      border: 1px solid #ddd;
+      padding: 12px;
+      border-radius: 8px;
+    }
+
+    button {
+      margin-top: 6px;
+      margin-bottom: 8px;
+    }
+
+    #error-output {
+      color: #a40000;
+      white-space: pre-wrap;
+    }
+
+    #summary-output,
+    #highlights-output,
+    #flashcards-output,
+    #transcript-output {
+      white-space: pre-wrap;
+    }
+  </style>
 </head>
 
 <body>
-  <h1>Lecture-to-Flashcards Prototype</h1>
+  <nav>
+    <a href="#processing">Обработка</a>
+    <a href="#transcript">Транскрипция</a>
+    <a href="#highlights">Таймкоды</a>
+    <a href="#summary">Конспект</a>
+    <a href="#flashcards">Карточки</a>
+  </nav>
 
-  <p>Загрузите файл, получите полную транскрипцию, важные таймкоды и по запросу сгенерируйте карточки.</p>
+  <main>
+    <h1>Lecture-to-Flashcards Prototype</h1>
+    <p>Загрузите файл и получайте результат по категориям.</p>
 
-  <form id="upload-form">
-    <label for="audio-file">Аудио файл:</label>
-    <input id="audio-file" name="audio-file" type="file" accept="audio/*,video/*" required />
-    <button type="submit">Отправить в обработку</button>
-  </form>
+    <section id="processing">
+      <h2>Обработка</h2>
+      <form id="upload-form">
+        <label for="audio-file">Аудио файл:</label>
+        <input id="audio-file" name="audio-file" type="file" accept="audio/*,video/*" required />
+        <button type="submit">Отправить в обработку</button>
+      </form>
 
-  <h2>Статус</h2>
-  <pre id="status-output">Ожидание...</pre>
+      <h3>Статус</h3>
+      <p id="status-output">Ожидание...</p>
 
-  <h2>Ошибки</h2>
-  <pre id="error-output"></pre>
+      <h3>Ошибки</h3>
+      <p id="error-output"></p>
 
-  <h2>Результат JSON</h2>
-  <pre id="result-output"></pre>
+      <h3>Результат</h3>
+      <p id="result-output">Файл еще не обработан.</p>
+    </section>
 
-  <h2>Важные таймкоды (AI)</h2>
-  <pre id="highlights-output"></pre>
+    <section id="transcript">
+      <h2>Транскрипция</h2>
+      <p id="transcript-output">Пока нет.</p>
+    </section>
 
-  <h2>Полная транскрипция</h2>
-  <pre id="transcript-output"></pre>
+    <section id="highlights">
+      <h2>Важные таймкоды (AI)</h2>
+      <button id="highlights-btn" type="button" disabled>Получить важные таймкоды</button>
+      <div id="highlights-output">Пока нет.</div>
+    </section>
 
-  <h2>Генерация карточек</h2>
-  <form id="flashcards-form">
-    <label for="cards-count">Количество карточек (1-10):</label>
-    <input id="cards-count" name="cards-count" type="number" min="1" max="10" value="5" required />
-    <button id="flashcards-btn" type="submit" disabled>Сгенерировать карточки</button>
-  </form>
+    <section id="summary">
+      <h2>Конспект</h2>
+      <button id="summary-btn" type="button" disabled>Сгенерировать конспект</button>
+      <div id="summary-output">Пока нет.</div>
+    </section>
 
-  <h2>Карточки JSON</h2>
-  <pre id="flashcards-output"></pre>
+    <section id="flashcards">
+      <h2>Карточки</h2>
+      <form id="flashcards-form">
+        <label for="cards-count">Количество карточек (1-10):</label>
+        <input id="cards-count" name="cards-count" type="number" min="1" max="10" value="5" required />
+        <button id="flashcards-btn" type="submit" disabled>Сгенерировать карточки</button>
+      </form>
+      <div id="flashcards-output">Пока нет.</div>
+    </section>
+  </main>
 
   <script>
     const form = document.getElementById('upload-form');
@@ -49,8 +127,15 @@
     const statusOutput = document.getElementById('status-output');
     const errorOutput = document.getElementById('error-output');
     const resultOutput = document.getElementById('result-output');
-    const highlightsOutput = document.getElementById('highlights-output');
+
     const transcriptOutput = document.getElementById('transcript-output');
+
+    const highlightsOutput = document.getElementById('highlights-output');
+    const highlightsBtn = document.getElementById('highlights-btn');
+
+    const summaryOutput = document.getElementById('summary-output');
+    const summaryBtn = document.getElementById('summary-btn');
+
     const flashcardsForm = document.getElementById('flashcards-form');
     const flashcardsOutput = document.getElementById('flashcards-output');
     const flashcardsBtn = document.getElementById('flashcards-btn');
@@ -62,24 +147,120 @@
       statusOutput.textContent = text;
     }
 
+    function cleanUserText(text) {
+      const value = String(text || '').trim();
+      return value
+        .replace(/^Тема:\s*/i, '')
+        .replace(/^Описание:\s*/i, '')
+        .replace(/^Ключевая информация:\s*/i, '')
+        .replace(/^Изображение\s*\(prompt\):\s*/i, '')
+        .trim();
+    }
+
     function setError(text) {
       errorOutput.textContent = text || '';
     }
 
     function setResult(obj) {
-      resultOutput.textContent = JSON.stringify(obj, null, 2);
-    }
-
-    function setHighlights(obj) {
-      highlightsOutput.textContent = JSON.stringify(obj, null, 2);
+      if (!obj || !obj.status) {
+        resultOutput.textContent = 'Файл еще не обработан.';
+        return;
+      }
+      if (obj.status === 'COMPLETED') {
+        resultOutput.textContent = 'Транскрипция завершена. Можно получать таймкоды, конспект и карточки.';
+        return;
+      }
+      resultOutput.textContent = `Текущий статус: ${obj.status}`;
     }
 
     function setTranscript(obj) {
-      transcriptOutput.textContent = JSON.stringify(obj, null, 2);
+      const text = obj && obj.transcript && typeof obj.transcript.text === 'string' ? obj.transcript.text : '';
+      transcriptOutput.textContent = text || 'Полная транскрипция пока не готова.';
+    }
+
+    function setHighlights(obj) {
+      const highlights = obj && Array.isArray(obj.highlights) ? obj.highlights : [];
+      if (highlights.length === 0) {
+        highlightsOutput.textContent = 'Важные таймкоды пока не найдены.';
+        return;
+      }
+      highlightsOutput.innerHTML = '';
+      const list = document.createElement('ul');
+      for (const item of highlights) {
+        const li = document.createElement('li');
+        const start = Math.round(Number(item.start || 0));
+        const end = Math.round(Number(item.end || 0));
+        li.textContent = `[${start}s - ${end}s] ${item.text || ''} — ${item.reason || ''}`;
+        list.appendChild(li);
+      }
+      highlightsOutput.appendChild(list);
+    }
+
+    function setSummary(obj) {
+      const summary = obj && obj.summary ? obj.summary : null;
+      if (!summary) {
+        summaryOutput.textContent = 'Конспект пока не сгенерирован.';
+        return;
+      }
+
+      const lines = [];
+      lines.push(`Источник: ${summary.title || ''}`);
+      lines.push(`Длительность: ${summary.duration || ''}`);
+      lines.push(`Время чтения: ${summary.smart_reading_time || ''}`);
+      lines.push('');
+      lines.push(`Суть: ${summary.executive_summary || ''}`);
+      lines.push('');
+      lines.push('Ключевые тезисы:');
+      for (const item of (summary.top_takeaways || [])) {
+        lines.push(`- ${item}`);
+      }
+      lines.push('');
+      lines.push('Заметки по материалу:');
+      const insights = Array.isArray(summary.material_insights) ? summary.material_insights : [];
+      insights.forEach((item, index) => {
+        const parts = [];
+        if (item.title) parts.push(item.title);
+        if (item.importance) parts.push(item.importance);
+        if (item.application) parts.push(`Практика: ${item.application}`);
+        if (item.snippet && (item.kind === 'formula' || item.kind === 'code')) {
+          parts.push(`Пример: ${item.snippet}`);
+        }
+        lines.push(`${index + 1}. ${parts.join(' ')}`);
+      });
+      lines.push('');
+      lines.push('Полезно запомнить:');
+      lines.push(`- Люди: ${(summary.entities?.people || []).join(', ') || '—'}`);
+      lines.push(`- Ключевые понятия: ${(summary.entities?.concepts || []).join(', ') || '—'}`);
+
+      summaryOutput.textContent = lines.join('\n');
     }
 
     function setFlashcards(obj) {
-      flashcardsOutput.textContent = JSON.stringify(obj, null, 2);
+      const cards = obj && Array.isArray(obj.cards) ? obj.cards : [];
+      if (cards.length === 0) {
+        flashcardsOutput.textContent = 'Карточки пока не сгенерированы.';
+        return;
+      }
+      flashcardsOutput.innerHTML = '';
+      const list = document.createElement('ol');
+      for (const card of cards) {
+        const li = document.createElement('li');
+        li.dataset.description = String(card.description || '');
+        li.dataset.keyInfo = String(card.keyInfo || '');
+        li.dataset.imagePrompt = String(card.imagePrompt || '');
+
+        const title = document.createElement('p');
+        title.textContent = cleanUserText(card.sectionTitle || '');
+        const desc = document.createElement('p');
+        desc.textContent = cleanUserText(card.description || '');
+        const key = document.createElement('p');
+        key.textContent = cleanUserText(card.keyInfo || '');
+        li.appendChild(title);
+        li.appendChild(desc);
+        li.appendChild(key);
+        list.appendChild(li);
+      }
+      flashcardsOutput.appendChild(list);
     }
 
     async function pollUntilCompleted(jobId) {
@@ -107,9 +288,7 @@
         if (res.status === 202) {
           const progress = typeof data.progress === 'number' ? data.progress : 0;
           setStatus(`В обработке... ${progress}%`);
-          await new Promise((resolve) =>
-            setTimeout(resolve, Number(data.recommendedPollIntervalMs || 1500))
-          );
+          await new Promise((resolve) => setTimeout(resolve, Number(data.recommendedPollIntervalMs || 1500)));
           continue;
         }
 
@@ -124,13 +303,73 @@
     async function loadTranscript(jobId) {
       const res = await fetch(`/api/v1/jobs/${jobId}/transcript`);
       const data = await res.json();
+      if (!res.ok) {
+        setError(data.errorCode ? `${data.errorCode}: ${data.errorMessage || data.message || ''}` : (data.message || 'Ошибка получения транскрипции'));
+        return;
+      }
       setTranscript(data);
     }
 
     async function loadHighlights(jobId) {
       const res = await fetch(`/api/v1/jobs/${jobId}/highlights`);
       const data = await res.json();
+      if (!res.ok) {
+        setError(data.errorCode ? `${data.errorCode}: ${data.errorMessage || data.message || ''}` : (data.message || 'Ошибка получения таймкодов'));
+        return;
+      }
       setHighlights(data);
+    }
+
+    async function requestHighlights(jobId) {
+      const res = await fetch(`/api/v1/jobs/${jobId}/highlights`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.errorCode ? `${data.errorCode}: ${data.errorMessage || data.message || ''}` : (data.message || 'Ошибка запуска таймкодов'));
+        return false;
+      }
+      return true;
+    }
+
+    async function loadSummary(jobId) {
+      const res = await fetch(`/api/v1/jobs/${jobId}/summary`);
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.errorCode ? `${data.errorCode}: ${data.errorMessage || data.message || ''}` : (data.message || 'Ошибка получения конспекта'));
+        return;
+      }
+      setSummary(data);
+    }
+
+    async function requestSummary(jobId) {
+      const res = await fetch(`/api/v1/jobs/${jobId}/summary`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.errorCode ? `${data.errorCode}: ${data.errorMessage || data.message || ''}` : (data.message || 'Ошибка запуска конспекта'));
+        return false;
+      }
+      return true;
+    }
+
+    async function pollUntilReady(path, description, maxAttempts = 180, delayMs = 1500) {
+      for (let i = 0; i < maxAttempts; i++) {
+        const res = await fetch(path);
+        const data = await res.json();
+        if (res.status === 200) {
+          return data;
+        }
+        if (res.status === 422) {
+          setError(data.errorCode ? `${data.errorCode}: ${data.errorMessage || data.message || ''}` : (data.message || `Ошибка ${description}`));
+          return null;
+        }
+        if (res.status === 202) {
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          continue;
+        }
+        setError(data.errorCode ? `${data.errorCode}: ${data.errorMessage || data.message || ''}` : (data.message || `Ошибка ${description}`));
+        return null;
+      }
+      setError(`Таймаут ожидания: ${description}`);
+      return null;
     }
 
     async function pollFlashcards(jobId) {
@@ -144,9 +383,7 @@
         }
         if (res.status === 202) {
           setStatus(`Генерация карточек... ${data.progress || 0}%`);
-          await new Promise((resolve) =>
-            setTimeout(resolve, Number(data.recommendedPollIntervalMs || 1500))
-          );
+          await new Promise((resolve) => setTimeout(resolve, Number(data.recommendedPollIntervalMs || 1500)));
           continue;
         }
         if (res.status === 200) {
@@ -162,11 +399,15 @@
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       setError('');
-      setResult({});
-      setTranscript({});
-      setHighlights({});
-      setFlashcards({});
+      setResult(null);
+      setTranscript(null);
+      setHighlights(null);
+      setSummary(null);
+      setFlashcards(null);
+
       flashcardsBtn.disabled = true;
+      highlightsBtn.disabled = true;
+      summaryBtn.disabled = true;
       currentJobId = null;
 
       const file = fileInput.files && fileInput.files[0];
@@ -193,7 +434,7 @@
         const ingestData = await ingestRes.json();
         if (!ingestRes.ok) {
           setStatus(`Ошибка ingest: HTTP ${ingestRes.status}`);
-          setError(JSON.stringify(ingestData, null, 2));
+          setError(ingestData.message || 'Ошибка при загрузке');
           return;
         }
 
@@ -201,10 +442,55 @@
         setStatus(`Job создан: ${jobId}`);
         const finalData = await pollUntilCompleted(jobId);
         if (!finalData) return;
+
         currentJobId = jobId;
         flashcardsBtn.disabled = false;
+        highlightsBtn.disabled = false;
+        summaryBtn.disabled = false;
+
         await loadTranscript(jobId);
-        await loadHighlights(jobId);
+      } catch (error) {
+        setStatus('Ошибка');
+        setError(error instanceof Error ? error.message : String(error));
+      }
+    });
+
+    highlightsBtn.addEventListener('click', async () => {
+      setError('');
+      if (!currentJobId) {
+        setError('Сначала загрузите и обработайте аудио');
+        return;
+      }
+      try {
+        setStatus('Запускаем генерацию таймкодов...');
+        const started = await requestHighlights(currentJobId);
+        if (!started) return;
+        setStatus('Ждем готовые таймкоды...');
+        const data = await pollUntilReady(`/api/v1/jobs/${currentJobId}/highlights`, 'таймкоды', 240, 1500);
+        if (!data) return;
+        setHighlights(data);
+        setStatus('COMPLETED');
+      } catch (error) {
+        setStatus('Ошибка');
+        setError(error instanceof Error ? error.message : String(error));
+      }
+    });
+
+    summaryBtn.addEventListener('click', async () => {
+      setError('');
+      if (!currentJobId) {
+        setError('Сначала загрузите и обработайте аудио');
+        return;
+      }
+      try {
+        setStatus('Запускаем генерацию конспекта...');
+        const started = await requestSummary(currentJobId);
+        if (!started) return;
+        setStatus('Ждем готовый конспект...');
+        const data = await pollUntilReady(`/api/v1/jobs/${currentJobId}/summary`, 'конспект', 360, 2000);
+        if (!data) return;
+        setSummary(data);
+        setStatus('COMPLETED');
       } catch (error) {
         setStatus('Ошибка');
         setError(error instanceof Error ? error.message : String(error));
@@ -232,7 +518,7 @@
         });
         const data = await res.json();
         if (!res.ok) {
-          setError(JSON.stringify(data, null, 2));
+          setError(data.message || 'Ошибка генерации карточек');
           return;
         }
         setStatus(`Карточки поставлены в очередь: ${count}`);

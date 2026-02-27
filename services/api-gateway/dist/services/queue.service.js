@@ -29,6 +29,14 @@ let QueueService = class QueueService {
             ...redis,
             defaultJobOptions: contracts_1.QUEUE_POLICIES.flashcard
         });
+        this.highlightsQueue = new bullmq_1.Queue(contracts_1.QUEUE_NAMES.highlight, {
+            ...redis,
+            defaultJobOptions: contracts_1.QUEUE_POLICIES.highlight
+        });
+        this.summaryQueue = new bullmq_1.Queue(contracts_1.QUEUE_NAMES.summary, {
+            ...redis,
+            defaultJobOptions: contracts_1.QUEUE_POLICIES.summary
+        });
     }
     async enqueueIngestion(payload) {
         const parsed = contracts_1.IngestionJobSchema.parse(payload);
@@ -38,9 +46,19 @@ let QueueService = class QueueService {
         const parsed = contracts_1.FlashcardGenerationJobSchema.parse(payload);
         await this.flashcardQueue.add('generate', parsed);
     }
+    async enqueueHighlights(payload) {
+        const parsed = contracts_1.HighlightGenerationJobSchema.parse(payload);
+        await this.highlightsQueue.add('generate', parsed);
+    }
+    async enqueueSummary(payload) {
+        const parsed = contracts_1.SummaryGenerationJobSchema.parse(payload);
+        await this.summaryQueue.add('generate', parsed);
+    }
     async onModuleDestroy() {
         await this.ingestionQueue.close();
         await this.flashcardQueue.close();
+        await this.highlightsQueue.close();
+        await this.summaryQueue.close();
     }
 };
 exports.QueueService = QueueService;

@@ -5,7 +5,10 @@ export const JOB_CONTRACT_VERSION = 'v1' as const;
 export const QUEUE_NAMES = {
   ingestion: `lec.${JOB_CONTRACT_VERSION}.ingestion`,
   transcription: `lec.${JOB_CONTRACT_VERSION}.transcription`,
-  flashcard: `lec.${JOB_CONTRACT_VERSION}.flashcard`
+  flashcard: `lec.${JOB_CONTRACT_VERSION}.flashcard`,
+  highlight: `lec.${JOB_CONTRACT_VERSION}.highlight`,
+  summary: `lec.${JOB_CONTRACT_VERSION}.summary`,
+  summaryFallback: `lec.${JOB_CONTRACT_VERSION}.summary_fallback`
 } as const;
 
 const defaultRetention = {
@@ -27,6 +30,21 @@ export const QUEUE_POLICIES = {
   flashcard: {
     attempts: 3,
     backoff: { type: 'exponential' as const, delay: 4000 },
+    ...defaultRetention
+  },
+  highlight: {
+    attempts: 3,
+    backoff: { type: 'exponential' as const, delay: 4000 },
+    ...defaultRetention
+  },
+  summary: {
+    attempts: 3,
+    backoff: { type: 'exponential' as const, delay: 4000 },
+    ...defaultRetention
+  },
+  summaryFallback: {
+    attempts: 2,
+    backoff: { type: 'exponential' as const, delay: 5000 },
     ...defaultRetention
   }
 } as const;
@@ -59,6 +77,21 @@ export const FlashcardGenerationJobSchema = z.object({
   maxCards: z.number().int().positive().max(10).default(5)
 });
 
+export const HighlightGenerationJobSchema = z.object({
+  jobId: z.string().min(1),
+  lectureId: z.string().min(1),
+  transcriptJson: z.string().min(1),
+  maxHighlights: z.number().int().positive().max(30).default(30)
+});
+
+export const SummaryGenerationJobSchema = z.object({
+  jobId: z.string().min(1),
+  lectureId: z.string().min(1),
+  filename: z.string().min(1),
+  transcriptText: z.string().min(1),
+  durationSec: z.number().int().nonnegative().default(0)
+});
+
 export const FlashcardSchema = z
   .object({
     sectionTitle: z.string().min(3),
@@ -80,5 +113,7 @@ export const FlashcardDeckSchema = z
 export type IngestionJobPayload = z.infer<typeof IngestionJobSchema>;
 export type TranscriptionJobPayload = z.infer<typeof TranscriptionJobSchema>;
 export type FlashcardGenerationJobPayload = z.infer<typeof FlashcardGenerationJobSchema>;
+export type HighlightGenerationJobPayload = z.infer<typeof HighlightGenerationJobSchema>;
+export type SummaryGenerationJobPayload = z.infer<typeof SummaryGenerationJobSchema>;
 export type Flashcard = z.infer<typeof FlashcardSchema>;
 export type FlashcardDeck = z.infer<typeof FlashcardDeckSchema>;

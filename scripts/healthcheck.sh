@@ -6,6 +6,9 @@ services=(
   "ingestion-service:3101"
   "transcription-worker:3102"
   "flashcard-worker:3103"
+  "highlight-worker:3104"
+  "summary-worker:3105"
+  "summary-fallback-worker:3106"
   "frontend-prototype:80"
 )
 

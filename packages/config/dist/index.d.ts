@@ -30,8 +30,10 @@ declare const EnvSchema: z.ZodObject<{
     DATABASE_URL: z.ZodOptional<z.ZodString>;
     ARTIFACTS_DIR: z.ZodDefault<z.ZodString>;
     OPENAI_API_KEY: z.ZodEffects<z.ZodOptional<z.ZodString>, string | undefined, unknown>;
+    OPENAI_FALLBACK_API_KEY: z.ZodEffects<z.ZodOptional<z.ZodString>, string | undefined, unknown>;
     OPENAI_MODEL: z.ZodEffects<z.ZodOptional<z.ZodString>, string | undefined, unknown>;
     OPENAI_BASE_URL: z.ZodEffects<z.ZodOptional<z.ZodString>, string | undefined, unknown>;
+    SUMMARY_AI_TIMEOUT_MS: z.ZodDefault<z.ZodNumber>;
 }, "strip", z.ZodTypeAny, {
     APP_ENV: "local" | "staging" | "production";
     NODE_ENV: "production" | "development" | "test";
@@ -55,6 +57,7 @@ declare const EnvSchema: z.ZodObject<{
     TRANSCRIPTION_PROVIDER_RETRY_DELAY_MS: number;
     TRANSCRIPTION_OPENAI_MODEL: string;
     ARTIFACTS_DIR: string;
+    SUMMARY_AI_TIMEOUT_MS: number;
     TRANSCRIPTION_OPENAI_API_KEY?: string | undefined;
     TRANSCRIPTION_OPENAI_BASE_URL?: string | undefined;
     DEEPGRAM_API_KEY?: string | undefined;
@@ -62,6 +65,7 @@ declare const EnvSchema: z.ZodObject<{
     DEEPGRAM_MODEL?: string | undefined;
     DATABASE_URL?: string | undefined;
     OPENAI_API_KEY?: string | undefined;
+    OPENAI_FALLBACK_API_KEY?: string | undefined;
     OPENAI_MODEL?: string | undefined;
     OPENAI_BASE_URL?: string | undefined;
 }, {
@@ -94,8 +98,10 @@ declare const EnvSchema: z.ZodObject<{
     DATABASE_URL?: string | undefined;
     ARTIFACTS_DIR?: string | undefined;
     OPENAI_API_KEY?: unknown;
+    OPENAI_FALLBACK_API_KEY?: unknown;
     OPENAI_MODEL?: unknown;
     OPENAI_BASE_URL?: unknown;
+    SUMMARY_AI_TIMEOUT_MS?: number | undefined;
 }>;
 export type AppEnv = z.infer<typeof EnvSchema>;
 export declare const APP_ENV: unique symbol;

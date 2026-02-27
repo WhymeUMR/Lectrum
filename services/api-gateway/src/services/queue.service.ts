@@ -2,9 +2,11 @@ import { Injectable, Inject, OnModuleDestroy } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import {
   FlashcardGenerationJobSchema,
+  HighlightGenerationJobSchema,
   IngestionJobSchema,
   QUEUE_NAMES,
-  QUEUE_POLICIES
+  QUEUE_POLICIES,
+  SummaryGenerationJobSchema
 } from '@lecture/contracts';
 import { APP_ENV, AppEnv, buildRedisConnection } from '@lecture/config';
 
@@ -12,6 +14,8 @@ import { APP_ENV, AppEnv, buildRedisConnection } from '@lecture/config';
 export class QueueService implements OnModuleDestroy {
   private readonly ingestionQueue: Queue;
   private readonly flashcardQueue: Queue;
+  private readonly highlightsQueue: Queue;
+  private readonly summaryQueue: Queue;
 
   constructor(@Inject(APP_ENV) private readonly env: AppEnv) {
     const redis = buildRedisConnection(env);
@@ -22,6 +26,14 @@ export class QueueService implements OnModuleDestroy {
     this.flashcardQueue = new Queue(QUEUE_NAMES.flashcard, {
       ...redis,
       defaultJobOptions: QUEUE_POLICIES.flashcard
+    });
+    this.highlightsQueue = new Queue(QUEUE_NAMES.highlight, {
+      ...redis,
+      defaultJobOptions: QUEUE_POLICIES.highlight
+    });
+    this.summaryQueue = new Queue(QUEUE_NAMES.summary, {
+      ...redis,
+      defaultJobOptions: QUEUE_POLICIES.summary
     });
   }
 
@@ -35,8 +47,20 @@ export class QueueService implements OnModuleDestroy {
     await this.flashcardQueue.add('generate', parsed);
   }
 
+  async enqueueHighlights(payload: unknown): Promise<void> {
+    const parsed = HighlightGenerationJobSchema.parse(payload);
+    await this.highlightsQueue.add('generate', parsed);
+  }
+
+  async enqueueSummary(payload: unknown): Promise<void> {
+    const parsed = SummaryGenerationJobSchema.parse(payload);
+    await this.summaryQueue.add('generate', parsed);
+  }
+
   async onModuleDestroy(): Promise<void> {
     await this.ingestionQueue.close();
     await this.flashcardQueue.close();
+    await this.highlightsQueue.close();
+    await this.summaryQueue.close();
   }
 }

@@ -12,7 +12,6 @@ const config_1 = require("@lecture/config");
 const app_controller_1 = require("./controllers/app.controller");
 const queue_service_1 = require("./services/queue.service");
 const job_store_service_1 = require("./services/job-store.service");
-const highlight_service_1 = require("./services/highlight.service");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -20,7 +19,7 @@ exports.AppModule = AppModule = __decorate([
     (0, common_1.Module)({
         imports: [config_1.SharedConfigModule.forRoot('api-gateway')],
         controllers: [app_controller_1.AppController],
-        providers: [queue_service_1.QueueService, job_store_service_1.JobStoreService, highlight_service_1.HighlightService]
+        providers: [queue_service_1.QueueService, job_store_service_1.JobStoreService]
     })
 ], AppModule);
 //# sourceMappingURL=app.module.js.map

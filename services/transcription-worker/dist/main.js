@@ -43,6 +43,12 @@ async function transcribeWithRetry(provider, req, attempts, retryDelayMs) {
     }
     throw lastError;
 }
+function isRetryableTranscriptionCode(code) {
+    return (code === 'TRANSCRIPTION_PROVIDER_TIMEOUT' ||
+        code === 'TRANSCRIPTION_PROVIDER_RATE_LIMIT' ||
+        code === 'TRANSCRIPTION_PROVIDER_UNAVAILABLE' ||
+        code === 'TRANSCRIPTION_PROVIDER_ERROR');
+}
 let TranscriptionProcessor = class TranscriptionProcessor {
     constructor(env) {
         this.env = env;
@@ -90,8 +96,14 @@ let TranscriptionProcessor = class TranscriptionProcessor {
             catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
                 const errorCode = error instanceof transcription_provider_1.TranscriptionProviderError ? error.code : 'TRANSCRIPTION_ERROR';
+                const configuredAttempts = Number(job.opts.attempts ?? 1);
+                const hasAttemptsLeft = job.attemptsMade + 1 < configuredAttempts;
+                const retryable = isRetryableTranscriptionCode(errorCode);
+                if (retryable && hasAttemptsLeft) {
+                    throw error;
+                }
                 await this.repo.setError(payload.jobId, errorCode, message);
-                throw error;
+                return;
             }
         }, {
             ...redis,

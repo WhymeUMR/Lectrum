@@ -1,5 +1,5 @@
 import { FlashcardDeck, FlashcardGenerationJobPayload } from '@lecture/contracts';
-export type GenerationPath = 'primary' | 'retry' | 'repair' | 'fallback';
+export type GenerationPath = 'primary' | 'retry' | 'repair';
 export interface GenerationReport {
     path: GenerationPath;
     primaryValid: boolean;
@@ -21,5 +21,9 @@ export interface GenerationOptions {
 export interface GeneratedDeckResult {
     deck: FlashcardDeck;
     report: GenerationReport;
+}
+export declare class FlashcardGenerationError extends Error {
+    readonly code: 'FLASHCARD_AI_UNAVAILABLE' | 'FLASHCARD_AI_HTTP_ERROR' | 'FLASHCARD_AI_INVALID_RESPONSE';
+    constructor(code: 'FLASHCARD_AI_UNAVAILABLE' | 'FLASHCARD_AI_HTTP_ERROR' | 'FLASHCARD_AI_INVALID_RESPONSE', message: string);
 }
 export declare function generateFlashcardDeck(payload: FlashcardGenerationJobPayload, options?: GenerationOptions): Promise<GeneratedDeckResult>;

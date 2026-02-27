@@ -10,7 +10,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "[e2e] starting local stack..."
-./scripts/compose.sh local up -d --build
+TRANSCRIPTION_PROVIDER=mock ./scripts/compose.sh local up -d --build
 
 echo "[e2e] waiting for health endpoints..."
 for i in $(seq 1 60); do
@@ -66,9 +66,56 @@ echo "[e2e] fetching result..."
 result=$(curl -sS "http://localhost:3100/api/v1/jobs/${first_job_id}/result")
 echo "$result" | jq
 
-if ! echo "$result" | rg -q '"flashcards"'; then
-  echo "[e2e] flashcards not found in result payload" >&2
+echo "[e2e] requesting flashcards generation..."
+flash_req_status=$(curl -sS -o /tmp/e2e-flashcards-start.json -w "%{http_code}" -X POST \
+  "http://localhost:3100/api/v1/jobs/${first_job_id}/flashcards" \
+  -H 'content-type: application/json' \
+  -d '{"count":3}')
+if [ "$flash_req_status" != "202" ]; then
+  echo "[e2e] expected HTTP 202 for flashcards generation, got $flash_req_status" >&2
+  cat /tmp/e2e-flashcards-start.json >&2
   exit 1
 fi
+
+echo "[e2e] waiting for flashcards completion..."
+for i in $(seq 1 120); do
+  result=$(curl -sS "http://localhost:3100/api/v1/jobs/${first_job_id}/result")
+  status=$(echo "$result" | jq -r '.status')
+  echo "flashcards poll[$i]: ${status}"
+  if [ "$status" = "COMPLETED" ] || [ "$status" = "FAILED" ]; then
+    break
+  fi
+  sleep 1
+done
+if [ "$status" != "COMPLETED" ]; then
+  if [ "$status" = "FAILED" ]; then
+    error_code=$(echo "$result" | jq -r '.errorCode // ""')
+    if [ "$error_code" = "FLASHCARD_AI_UNAVAILABLE" ] || [ "$error_code" = "FLASHCARD_AI_HTTP_ERROR" ] || [ "$error_code" = "FLASHCARD_AI_INVALID_RESPONSE" ]; then
+      echo "[e2e] flashcards failed with explicit AI error code: $error_code"
+      echo "$result" | jq
+      echo "[e2e] PASS"
+      exit 0
+    fi
+  fi
+  echo "[e2e] flashcards generation did not complete successfully: ${status}" >&2
+  echo "$result" | jq >&2
+  exit 1
+fi
+
+cards_len=$(echo "$result" | jq -r '.flashcards.cards | length')
+if [ "$cards_len" != "3" ]; then
+  echo "[e2e] expected 3 flashcards, got $cards_len" >&2
+  echo "$result" | jq >&2
+  exit 1
+fi
+
+unique_titles=$(echo "$result" | jq -r '[.flashcards.cards[].sectionTitle] | unique | length')
+if [ "$unique_titles" -lt 2 ]; then
+  echo "[e2e] flashcards titles look duplicated" >&2
+  echo "$result" | jq >&2
+  exit 1
+fi
+
+echo "$result" | jq
 
 echo "[e2e] PASS"

@@ -29,8 +29,10 @@ x-common-env: &common-env
   JOB_EXPECTED_MAX_PROCESSING_MS: ${JOB_EXPECTED_MAX_PROCESSING_MS:-900000}
   UPLOAD_MAX_FILE_SIZE_BYTES: ${UPLOAD_MAX_FILE_SIZE_BYTES:-209715200}
   OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  OPENAI_FALLBACK_API_KEY: ${OPENAI_FALLBACK_API_KEY:-}
   OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
   OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+  SUMMARY_AI_TIMEOUT_MS: ${SUMMARY_AI_TIMEOUT_MS:-180000}
   DATABASE_URL: ${DATABASE_URL:-postgres://app:app@postgres:5432/lecture_flashcards}
   ARTIFACTS_DIR: ${ARTIFACTS_DIR:-/app/storage}
 
@@ -152,6 +154,82 @@ services:
       PORT: 3000
     ports:
       - '3103:3000'
+    volumes:
+      - artifacts_data:/app/storage
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', "wget -qO- http://127.0.0.1:3000/health | grep -q 'ok'"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  highlight-worker:
+    build:
+      <<: *common-build
+      dockerfile: services/highlight-worker/Dockerfile
+      args:
+        SERVICE_PATH: services/highlight-worker
+    environment:
+      <<: *common-env
+      SERVICE_NAME: highlight-worker
+      PORT: 3000
+    ports:
+      - '3104:3000'
+    volumes:
+      - artifacts_data:/app/storage
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', "wget -qO- http://127.0.0.1:3000/health | grep -q 'ok'"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  summary-worker:
+    build:
+      <<: *common-build
+      dockerfile: services/summary-worker/Dockerfile
+      args:
+        SERVICE_PATH: services/summary-worker
+    environment:
+      <<: *common-env
+      SERVICE_NAME: summary-worker
+      PORT: 3000
+    ports:
+      - '3105:3000'
+    volumes:
+      - artifacts_data:/app/storage
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', "wget -qO- http://127.0.0.1:3000/health | grep -q 'ok'"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  summary-fallback-worker:
+    build:
+      <<: *common-build
+      dockerfile: services/summary-fallback-worker/Dockerfile
+      args:
+        SERVICE_PATH: services/summary-fallback-worker
+    environment:
+      <<: *common-env
+      SERVICE_NAME: summary-fallback-worker
+      PORT: 3000
+      OPENAI_API_KEY: ${OPENAI_FALLBACK_API_KEY:-}
+    ports:
+      - '3106:3000'
     volumes:
       - artifacts_data:/app/storage
     depends_on:

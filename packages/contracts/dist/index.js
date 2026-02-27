@@ -1,12 +1,15 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.FlashcardDeckSchema = exports.FlashcardSchema = exports.FlashcardGenerationJobSchema = exports.TranscriptionJobSchema = exports.IngestionJobSchema = exports.QUEUE_POLICIES = exports.QUEUE_NAMES = exports.JOB_CONTRACT_VERSION = void 0;
+exports.FlashcardDeckSchema = exports.FlashcardSchema = exports.SummaryGenerationJobSchema = exports.HighlightGenerationJobSchema = exports.FlashcardGenerationJobSchema = exports.TranscriptionJobSchema = exports.IngestionJobSchema = exports.QUEUE_POLICIES = exports.QUEUE_NAMES = exports.JOB_CONTRACT_VERSION = void 0;
 const zod_1 = require("zod");
 exports.JOB_CONTRACT_VERSION = 'v1';
 exports.QUEUE_NAMES = {
     ingestion: `lec.${exports.JOB_CONTRACT_VERSION}.ingestion`,
     transcription: `lec.${exports.JOB_CONTRACT_VERSION}.transcription`,
-    flashcard: `lec.${exports.JOB_CONTRACT_VERSION}.flashcard`
+    flashcard: `lec.${exports.JOB_CONTRACT_VERSION}.flashcard`,
+    highlight: `lec.${exports.JOB_CONTRACT_VERSION}.highlight`,
+    summary: `lec.${exports.JOB_CONTRACT_VERSION}.summary`,
+    summaryFallback: `lec.${exports.JOB_CONTRACT_VERSION}.summary_fallback`
 };
 const defaultRetention = {
     removeOnComplete: { age: 24 * 60 * 60, count: 2000 },
@@ -26,6 +29,21 @@ exports.QUEUE_POLICIES = {
     flashcard: {
         attempts: 3,
         backoff: { type: 'exponential', delay: 4000 },
+        ...defaultRetention
+    },
+    highlight: {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 4000 },
+        ...defaultRetention
+    },
+    summary: {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 4000 },
+        ...defaultRetention
+    },
+    summaryFallback: {
+        attempts: 2,
+        backoff: { type: 'exponential', delay: 5000 },
         ...defaultRetention
     }
 };
@@ -53,6 +71,19 @@ exports.FlashcardGenerationJobSchema = zod_1.z.object({
     lectureId: zod_1.z.string().min(1),
     transcriptText: zod_1.z.string().min(1),
     maxCards: zod_1.z.number().int().positive().max(10).default(5)
+});
+exports.HighlightGenerationJobSchema = zod_1.z.object({
+    jobId: zod_1.z.string().min(1),
+    lectureId: zod_1.z.string().min(1),
+    transcriptJson: zod_1.z.string().min(1),
+    maxHighlights: zod_1.z.number().int().positive().max(30).default(30)
+});
+exports.SummaryGenerationJobSchema = zod_1.z.object({
+    jobId: zod_1.z.string().min(1),
+    lectureId: zod_1.z.string().min(1),
+    filename: zod_1.z.string().min(1),
+    transcriptText: zod_1.z.string().min(1),
+    durationSec: zod_1.z.number().int().nonnegative().default(0)
 });
 exports.FlashcardSchema = zod_1.z
     .object({

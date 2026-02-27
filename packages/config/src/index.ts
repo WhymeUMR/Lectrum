@@ -26,7 +26,7 @@ const EnvSchema = z.object({
   JOB_EXPECTED_MAX_PROCESSING_MS: z.coerce.number().int().positive().default(900000),
   UPLOAD_MAX_FILE_SIZE_BYTES: z.coerce.number().int().positive().default(200 * 1024 * 1024),
   TRANSCRIPTION_PROVIDER: z.enum(['mock', 'openai', 'deepgram']).default('mock'),
-  TRANSCRIPTION_PROVIDER_TIMEOUT_MS: z.coerce.number().int().positive().default(45000),
+  TRANSCRIPTION_PROVIDER_TIMEOUT_MS: z.coerce.number().int().positive().default(120000),
   TRANSCRIPTION_PROVIDER_RETRY_ATTEMPTS: z.coerce.number().int().min(1).max(5).default(2),
   TRANSCRIPTION_PROVIDER_RETRY_DELAY_MS: z.coerce.number().int().positive().default(1000),
   TRANSCRIPTION_OPENAI_MODEL: z.string().min(1).default('whisper-1'),
@@ -38,8 +38,10 @@ const EnvSchema = z.object({
   DATABASE_URL: z.string().min(1).optional(),
   ARTIFACTS_DIR: z.string().min(1).default('/app/storage'),
   OPENAI_API_KEY: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  OPENAI_FALLBACK_API_KEY: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   OPENAI_MODEL: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
-  OPENAI_BASE_URL: z.preprocess(emptyToUndefined, z.string().url().optional())
+  OPENAI_BASE_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
+  SUMMARY_AI_TIMEOUT_MS: z.coerce.number().int().positive().default(180000)
 });
 
 export type AppEnv = z.infer<typeof EnvSchema>;
@@ -76,8 +78,10 @@ function loadEnv(serviceName: string): AppEnv {
     DATABASE_URL: process.env.DATABASE_URL,
     ARTIFACTS_DIR: process.env.ARTIFACTS_DIR,
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    OPENAI_FALLBACK_API_KEY: process.env.OPENAI_FALLBACK_API_KEY,
     OPENAI_MODEL: process.env.OPENAI_MODEL,
-    OPENAI_BASE_URL: process.env.OPENAI_BASE_URL
+    OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+    SUMMARY_AI_TIMEOUT_MS: process.env.SUMMARY_AI_TIMEOUT_MS
   });
 }
 

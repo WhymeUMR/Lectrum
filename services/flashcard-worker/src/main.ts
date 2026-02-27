@@ -6,7 +6,7 @@ import { Job, Worker } from 'bullmq';
 import { FlashcardGenerationJobPayload, QUEUE_NAMES, QUEUE_POLICIES } from '@lecture/contracts';
 import { APP_ENV, AppEnv, SharedConfigModule, buildRedisConnection } from '@lecture/config';
 import { PipelineRepository, writeArtifact } from '@lecture/pipeline';
-import { generateFlashcardDeck } from './flashcard-generation';
+import { FlashcardGenerationError, generateFlashcardDeck } from './flashcard-generation';
 import { evaluateQualityGates } from './quality-gates';
 
 class FlashcardProcessor implements OnModuleInit, OnModuleDestroy {
@@ -55,7 +55,9 @@ class FlashcardProcessor implements OnModuleInit, OnModuleDestroy {
           await this.repo.updateStatus(payload.jobId, 'COMPLETED');
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          await this.repo.setError(payload.jobId, 'FLASHCARD_GENERATION_ERROR', message);
+          const errorCode =
+            error instanceof FlashcardGenerationError ? error.code : 'FLASHCARD_GENERATION_ERROR';
+          await this.repo.setError(payload.jobId, errorCode, message);
           throw error;
         }
       },

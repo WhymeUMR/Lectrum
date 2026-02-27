@@ -26,15 +26,14 @@ import { JobStoreService } from '../services/job-store.service';
 import { CreateIngestionRequestSchema } from '../dto/create-ingestion-request.schema';
 import { ZodValidationPipe } from '../pipes/zod-validation.pipe';
 import { GenerateFlashcardsRequestSchema } from '../dto/generate-flashcards-request.schema';
-import { HighlightService } from '../services/highlight.service';
+import { GenerateFlashcardsByJobRequestSchema } from '../dto/generate-flashcards-by-job-request.schema';
 
 @Controller()
 export class AppController {
   constructor(
     @Inject(APP_ENV) private readonly env: AppEnv,
     private readonly queueService: QueueService,
-    private readonly store: JobStoreService,
-    private readonly highlightService: HighlightService
+    private readonly store: JobStoreService
   ) {}
 
   @Get('/health')
@@ -172,6 +171,10 @@ export class AppController {
       transcriptPath: job.transcriptPath,
       transcriptText: job.transcriptText,
       transcript: job.transcriptJson ? JSON.parse(job.transcriptJson) : null,
+      highlightsPath: job.highlightsPath,
+      highlights: job.highlightsJson ? JSON.parse(job.highlightsJson) : null,
+      summaryPath: job.summaryPath,
+      summary: job.summaryJson ? JSON.parse(job.summaryJson) : null,
       flashcardsPath: job.flashcardsPath,
       flashcards: job.flashcardsJson ? JSON.parse(job.flashcardsJson) : null
     };
@@ -208,6 +211,16 @@ export class AppController {
     };
   }
 
+  @Post('/api/v1/jobs/:jobId/highlights')
+  async generateTranscriptHighlights(
+    @Param('jobId') jobId: string,
+    @Res({ passthrough: true }) response: Response
+  ) {
+    const result = await this.requestHighlightsGeneration(jobId);
+    response.status(HttpStatus.ACCEPTED);
+    return result;
+  }
+
   @Get('/api/v1/jobs/:jobId/highlights')
   async getTranscriptHighlights(
     @Param('jobId') jobId: string,
@@ -227,7 +240,7 @@ export class AppController {
         errorMessage: job.errorMessage
       };
     }
-    if (!job.transcriptJson) {
+    if (!job.highlightsJson) {
       response.status(HttpStatus.ACCEPTED);
       return {
         jobId,
@@ -235,12 +248,48 @@ export class AppController {
         message: 'Transcript highlights are not ready yet'
       };
     }
-    const transcript = JSON.parse(job.transcriptJson) as { text?: string; segments?: Array<{ start?: number; end?: number; text?: string }> };
-    const highlights = await this.highlightService.getHighlights(transcript, 5);
     return {
       jobId,
       lectureId: job.lectureId,
-      highlights
+      highlights: JSON.parse(job.highlightsJson)
+    };
+  }
+
+  @Post('/api/v1/jobs/:jobId/summary')
+  async generateLectureSummary(@Param('jobId') jobId: string, @Res({ passthrough: true }) response: Response) {
+    const result = await this.requestSummaryGeneration(jobId);
+    response.status(HttpStatus.ACCEPTED);
+    return result;
+  }
+
+  @Get('/api/v1/jobs/:jobId/summary')
+  async getLectureSummary(@Param('jobId') jobId: string, @Res({ passthrough: true }) response: Response) {
+    const job = await this.store.repo.getJob(jobId);
+    if (!job) {
+      throw new NotFoundException(`Job ${jobId} not found`);
+    }
+    if (job.status === 'FAILED') {
+      response.status(HttpStatus.UNPROCESSABLE_ENTITY);
+      return {
+        jobId,
+        status: job.status,
+        message: 'Job processing failed',
+        errorCode: job.errorCode,
+        errorMessage: job.errorMessage
+      };
+    }
+    if (!job.summaryJson) {
+      response.status(HttpStatus.ACCEPTED);
+      return {
+        jobId,
+        status: job.status,
+        message: 'Summary is not ready yet'
+      };
+    }
+    return {
+      jobId,
+      lectureId: job.lectureId,
+      summary: JSON.parse(job.summaryJson)
     };
   }
 
@@ -250,6 +299,22 @@ export class AppController {
     @Body(new ZodValidationPipe(GenerateFlashcardsRequestSchema)) body: { count: number },
     @Res({ passthrough: true }) response: Response
   ) {
+    const result = await this.requestFlashcardsGeneration(jobId, body.count);
+    response.status(HttpStatus.ACCEPTED);
+    return result;
+  }
+
+  @Post('/api/v1/flashcards/generate')
+  async generateFlashcardsByJobId(
+    @Body(new ZodValidationPipe(GenerateFlashcardsByJobRequestSchema)) body: { jobId: string; count: number },
+    @Res({ passthrough: true }) response: Response
+  ) {
+    const result = await this.requestFlashcardsGeneration(body.jobId, body.count);
+    response.status(HttpStatus.ACCEPTED);
+    return result;
+  }
+
+  private async requestFlashcardsGeneration(jobId: string, count: number) {
     const job = await this.store.repo.getJob(jobId);
     if (!job) {
       throw new NotFoundException(`Job ${jobId} not found`);
@@ -270,19 +335,86 @@ export class AppController {
         jobId,
         lectureId: job.lectureId,
         transcriptText: job.transcriptText,
-        maxCards: body.count
+        maxCards: count
       });
     } catch (error) {
       await this.store.repo.updateStatus(jobId, 'COMPLETED');
       const message = error instanceof Error ? error.message : String(error);
       throw new ServiceUnavailableException(`Flashcards queue unavailable: ${message}`);
     }
-
-    response.status(HttpStatus.ACCEPTED);
     return {
       jobId,
       status: 'GENERATING_FLASHCARDS',
-      requestedCards: body.count
+      requestedCards: count
+    };
+  }
+
+  private async requestHighlightsGeneration(jobId: string) {
+    const job = await this.store.repo.getJob(jobId);
+    if (!job) {
+      throw new NotFoundException(`Job ${jobId} not found`);
+    }
+    if (job.status === 'FAILED') {
+      throw new ConflictException('Cannot generate highlights for failed job');
+    }
+    if (!job.transcriptJson) {
+      throw new ConflictException('Transcript is not ready yet');
+    }
+    if (job.status === 'GENERATING_HIGHLIGHTS') {
+      throw new ConflictException('Highlights generation already in progress');
+    }
+    try {
+      await this.store.repo.updateStatus(jobId, 'GENERATING_HIGHLIGHTS');
+      await this.queueService.enqueueHighlights({
+        jobId,
+        lectureId: job.lectureId,
+        transcriptJson: job.transcriptJson
+      });
+    } catch (error) {
+      await this.store.repo.updateStatus(jobId, 'COMPLETED');
+      const message = error instanceof Error ? error.message : String(error);
+      throw new ServiceUnavailableException(`Highlights queue unavailable: ${message}`);
+    }
+    return {
+      jobId,
+      status: 'GENERATING_HIGHLIGHTS'
+    };
+  }
+
+  private async requestSummaryGeneration(jobId: string) {
+    const job = await this.store.repo.getJob(jobId);
+    if (!job) {
+      throw new NotFoundException(`Job ${jobId} not found`);
+    }
+    if (job.status === 'FAILED') {
+      throw new ConflictException('Cannot generate summary for failed job');
+    }
+    if (!job.transcriptText) {
+      throw new ConflictException('Transcript is not ready yet');
+    }
+    if (job.status === 'GENERATING_SUMMARY') {
+      throw new ConflictException('Summary generation already in progress');
+    }
+    const transcript = job.transcriptJson ? (JSON.parse(job.transcriptJson) as { duration?: number }) : {};
+    const durationSecRaw = Number(transcript.duration ?? 0);
+    const durationSec = Number.isFinite(durationSecRaw) ? Math.max(0, Math.floor(durationSecRaw)) : 0;
+    try {
+      await this.store.repo.updateStatus(jobId, 'GENERATING_SUMMARY');
+      await this.queueService.enqueueSummary({
+        jobId,
+        lectureId: job.lectureId,
+        filename: job.filename || `Lecture ${job.lectureId}`,
+        transcriptText: job.transcriptText,
+        durationSec
+      });
+    } catch (error) {
+      await this.store.repo.updateStatus(jobId, 'COMPLETED');
+      const message = error instanceof Error ? error.message : String(error);
+      throw new ServiceUnavailableException(`Summary queue unavailable: ${message}`);
+    }
+    return {
+      jobId,
+      status: 'GENERATING_SUMMARY'
     };
   }
 
@@ -292,6 +424,8 @@ export class AppController {
       INGESTING: 20,
       INGESTED: 35,
       TRANSCRIBING: 55,
+      GENERATING_HIGHLIGHTS: 75,
+      GENERATING_SUMMARY: 80,
       GENERATING_FLASHCARDS: 85,
       COMPLETED: 100,
       FAILED: 100

@@ -2,13 +2,11 @@ import { AppEnv } from '@lecture/config';
 import { Response } from 'express';
 import { QueueService } from '../services/queue.service';
 import { JobStoreService } from '../services/job-store.service';
-import { HighlightService } from '../services/highlight.service';
 export declare class AppController {
     private readonly env;
     private readonly queueService;
     private readonly store;
-    private readonly highlightService;
-    constructor(env: AppEnv, queueService: QueueService, store: JobStoreService, highlightService: HighlightService);
+    constructor(env: AppEnv, queueService: QueueService, store: JobStoreService);
     health(): {
         status: string;
         service: string;
@@ -22,6 +20,9 @@ export declare class AppController {
             readonly ingestion: "lec.v1.ingestion";
             readonly transcription: "lec.v1.transcription";
             readonly flashcard: "lec.v1.flashcard";
+            readonly highlight: "lec.v1.highlight";
+            readonly summary: "lec.v1.summary";
+            readonly summaryFallback: "lec.v1.summary_fallback";
         };
     };
     createIngestionJob(parsed: any, file?: {
@@ -46,11 +47,15 @@ export declare class AppController {
         transcriptPath?: undefined;
         transcriptText?: undefined;
         transcript?: undefined;
+        highlightsPath?: undefined;
+        highlights?: undefined;
+        summaryPath?: undefined;
+        summary?: undefined;
         flashcardsPath?: undefined;
         flashcards?: undefined;
     } | {
         jobId: string;
-        status: "QUEUED" | "INGESTING" | "INGESTED" | "TRANSCRIBING" | "GENERATING_FLASHCARDS";
+        status: "QUEUED" | "INGESTING" | "INGESTED" | "TRANSCRIBING" | "GENERATING_HIGHLIGHTS" | "GENERATING_SUMMARY" | "GENERATING_FLASHCARDS";
         message: string;
         progress: number;
         recommendedPollIntervalMs: number;
@@ -61,6 +66,10 @@ export declare class AppController {
         transcriptPath?: undefined;
         transcriptText?: undefined;
         transcript?: undefined;
+        highlightsPath?: undefined;
+        highlights?: undefined;
+        summaryPath?: undefined;
+        summary?: undefined;
         flashcardsPath?: undefined;
         flashcards?: undefined;
     } | {
@@ -70,6 +79,10 @@ export declare class AppController {
         transcriptPath: string | null;
         transcriptText: string | null;
         transcript: any;
+        highlightsPath: string | null;
+        highlights: any;
+        summaryPath: string | null;
+        summary: any;
         flashcardsPath: string | null;
         flashcards: any;
         message?: undefined;
@@ -89,7 +102,7 @@ export declare class AppController {
         transcript?: undefined;
     } | {
         jobId: string;
-        status: "QUEUED" | "INGESTING" | "INGESTED" | "TRANSCRIBING" | "GENERATING_FLASHCARDS" | "COMPLETED";
+        status: "QUEUED" | "INGESTING" | "INGESTED" | "TRANSCRIBING" | "GENERATING_HIGHLIGHTS" | "GENERATING_SUMMARY" | "GENERATING_FLASHCARDS" | "COMPLETED";
         message: string;
         errorCode?: undefined;
         errorMessage?: undefined;
@@ -104,6 +117,10 @@ export declare class AppController {
         errorCode?: undefined;
         errorMessage?: undefined;
     }>;
+    generateTranscriptHighlights(jobId: string, response: Response): Promise<{
+        jobId: string;
+        status: string;
+    }>;
     getTranscriptHighlights(jobId: string, response: Response): Promise<{
         jobId: string;
         status: "FAILED";
@@ -114,7 +131,7 @@ export declare class AppController {
         highlights?: undefined;
     } | {
         jobId: string;
-        status: "QUEUED" | "INGESTING" | "INGESTED" | "TRANSCRIBING" | "GENERATING_FLASHCARDS" | "COMPLETED";
+        status: "QUEUED" | "INGESTING" | "INGESTED" | "TRANSCRIBING" | "GENERATING_HIGHLIGHTS" | "GENERATING_SUMMARY" | "GENERATING_FLASHCARDS" | "COMPLETED";
         message: string;
         errorCode?: undefined;
         errorMessage?: undefined;
@@ -123,7 +140,36 @@ export declare class AppController {
     } | {
         jobId: string;
         lectureId: string;
-        highlights: import("../services/highlight.service").TranscriptHighlight[];
+        highlights: any;
+        status?: undefined;
+        message?: undefined;
+        errorCode?: undefined;
+        errorMessage?: undefined;
+    }>;
+    generateLectureSummary(jobId: string, response: Response): Promise<{
+        jobId: string;
+        status: string;
+    }>;
+    getLectureSummary(jobId: string, response: Response): Promise<{
+        jobId: string;
+        status: "FAILED";
+        message: string;
+        errorCode: string | null;
+        errorMessage: string | null;
+        lectureId?: undefined;
+        summary?: undefined;
+    } | {
+        jobId: string;
+        status: "QUEUED" | "INGESTING" | "INGESTED" | "TRANSCRIBING" | "GENERATING_HIGHLIGHTS" | "GENERATING_SUMMARY" | "GENERATING_FLASHCARDS" | "COMPLETED";
+        message: string;
+        errorCode?: undefined;
+        errorMessage?: undefined;
+        lectureId?: undefined;
+        summary?: undefined;
+    } | {
+        jobId: string;
+        lectureId: string;
+        summary: any;
         status?: undefined;
         message?: undefined;
         errorCode?: undefined;
@@ -136,5 +182,16 @@ export declare class AppController {
         status: string;
         requestedCards: number;
     }>;
+    generateFlashcardsByJobId(body: {
+        jobId: string;
+        count: number;
+    }, response: Response): Promise<{
+        jobId: string;
+        status: string;
+        requestedCards: number;
+    }>;
+    private requestFlashcardsGeneration;
+    private requestHighlightsGeneration;
+    private requestSummaryGeneration;
     private statusToProgress;
 }

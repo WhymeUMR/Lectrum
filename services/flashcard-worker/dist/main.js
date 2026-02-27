@@ -60,7 +60,8 @@ let FlashcardProcessor = class FlashcardProcessor {
             }
             catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
-                await this.repo.setError(payload.jobId, 'FLASHCARD_GENERATION_ERROR', message);
+                const errorCode = error instanceof flashcard_generation_1.FlashcardGenerationError ? error.code : 'FLASHCARD_GENERATION_ERROR';
+                await this.repo.setError(payload.jobId, errorCode, message);
                 throw error;
             }
         }, {

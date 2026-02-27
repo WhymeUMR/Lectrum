@@ -1,15 +1,41 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { generateFlashcardDeck } = require('../../services/flashcard-worker/dist/flashcard-generation.js');
+const {
+  generateFlashcardDeck,
+  FlashcardGenerationError
+} = require('../../services/flashcard-worker/dist/flashcard-generation.js');
 
 function payload() {
   return {
     jobId: 'u-1',
     lectureId: 'lec-unit',
     transcriptText:
-      'Транскрипт о валидации JSON схемы и детерминированных стратегиях восстановления.',
-    maxCards: 5
+      'Это длинный учебный текст о том, как проверять гипотезы, сравнивать подходы и делать выводы по результатам эксперимента.',
+    maxCards: 3
   };
+}
+
+function validCards() {
+  return [
+    {
+      sectionTitle: 'Постановка гипотезы',
+      description: 'Сначала формулируется проверяемая гипотеза и критерии успешности до начала эксперимента.',
+      keyInfo: 'Гипотеза должна быть измеримой и проверяемой.',
+      imagePrompt: 'Схема научного метода и формулировки гипотезы'
+    },
+    {
+      sectionTitle: 'План эксперимента',
+      description: 'Далее выбираются метрики и проектируется эксперимент так, чтобы исключить случайные искажения.',
+      keyInfo: 'Нужно заранее определить метрики и контрольные условия.',
+      imagePrompt: 'Диаграмма с этапами эксперимента и метриками'
+    },
+    {
+      sectionTitle: 'Интерпретация результатов',
+      description: 'После сбора данных результаты интерпретируются с учетом ограничений и возможных альтернативных объяснений.',
+      keyInfo: 'Выводы должны учитывать ограничения и риски смещения.',
+      imagePrompt: 'Иллюстрация анализа данных и формулировки выводов'
+    }
+  ];
 }
 
 test('generateFlashcardDeck: primary path returns valid deck', async () => {
@@ -19,20 +45,13 @@ test('generateFlashcardDeck: primary path returns valid deck', async () => {
         schemaVersion: '1.0',
         lectureId: 'lec-unit',
         generatedAt: new Date().toISOString(),
-        cards: [
-          {
-            sectionTitle: 'Строгая схема',
-            description: 'Проверяет структуру карточек до сохранения.',
-            keyInfo: 'Валидация гарантирует корректный JSON.',
-            imagePrompt: 'Схема валидации данных'
-          }
-        ]
+        cards: validCards()
       })
   });
 
   assert.equal(result.report.path, 'primary');
   assert.equal(result.report.finalValid, true);
-  assert.equal(result.deck.cards.length, 5);
+  assert.equal(result.deck.cards.length, 3);
 });
 
 test('generateFlashcardDeck: retry path used when primary invalid', async () => {
@@ -45,14 +64,7 @@ test('generateFlashcardDeck: retry path used when primary invalid', async () => 
         schemaVersion: '1.0',
         lectureId: 'lec-unit',
         generatedAt: new Date().toISOString(),
-        cards: [
-          {
-            sectionTitle: 'Повторная генерация',
-            description: 'Второй проход нужен, когда первый вывод невалиден.',
-            keyInfo: 'Retry повышает шанс получить корректную структуру.',
-            imagePrompt: 'Цикл повторной попытки'
-          }
-        ]
+        cards: validCards()
       });
     }
   });
@@ -61,29 +73,37 @@ test('generateFlashcardDeck: retry path used when primary invalid', async () => 
   assert.equal(result.report.path, 'retry');
 });
 
-test('generateFlashcardDeck: repair path normalizes alternative fields', async () => {
-  const result = await generateFlashcardDeck(payload(), {
-    generator: async ({ attempt }) => {
-      if (attempt === 'primary') return 'broken';
-      return `wrapped:${JSON.stringify({
-        schemaVersion: '1.0',
-        lectureId: 'lec-unit',
-        generatedAt: new Date().toISOString(),
-        cards: [{ title: 'Раздел', summary: 'Описание раздела', key_point: 'Ключевая мысль', image: 'Иллюстрация раздела' }]
-      })}:end`;
-    }
-  });
-
-  assert.equal(result.report.path, 'repair');
-  assert.equal(result.deck.cards[0].sectionTitle, 'Раздел');
-  assert.equal(result.deck.cards[0].keyInfo, 'Ключевая мысль');
+test('generateFlashcardDeck: rejects when AI is unavailable', async () => {
+  await assert.rejects(
+    () => generateFlashcardDeck(payload(), {}),
+    (error) => error instanceof FlashcardGenerationError && error.code === 'FLASHCARD_AI_UNAVAILABLE'
+  );
 });
 
-test('generateFlashcardDeck: fallback path returns safe deck when all fails', async () => {
-  const result = await generateFlashcardDeck(payload(), {
-    generator: async () => 'still-not-json'
-  });
-
-  assert.equal(result.report.path, 'fallback');
-  assert.ok(result.deck.cards.length >= 1);
+test('generateFlashcardDeck: rejects excerpt-like keyInfo instead of summary', async () => {
+  const transcript = payload().transcriptText;
+  await assert.rejects(
+    () =>
+      generateFlashcardDeck(payload(), {
+        generator: async () =>
+          JSON.stringify({
+            schemaVersion: '1.0',
+            lectureId: 'lec-unit',
+            generatedAt: new Date().toISOString(),
+            cards: [
+              {
+                sectionTitle: 'Раздел 1',
+                description: 'Это достаточно длинное описание, которое формально проходит минимальные пороги качества.',
+                keyInfo: transcript,
+                imagePrompt: 'Иллюстрация'
+              },
+              ...validCards().slice(1)
+            ]
+          })
+      }),
+    (error) =>
+      error instanceof FlashcardGenerationError &&
+      error.code === 'FLASHCARD_AI_INVALID_RESPONSE' &&
+      /raw transcript excerpt/i.test(error.message)
+  );
 });

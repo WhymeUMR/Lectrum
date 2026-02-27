@@ -37,6 +37,15 @@ async function transcribeWithRetry(
   throw lastError;
 }
 
+function isRetryableTranscriptionCode(code: string): boolean {
+  return (
+    code === 'TRANSCRIPTION_PROVIDER_TIMEOUT' ||
+    code === 'TRANSCRIPTION_PROVIDER_RATE_LIMIT' ||
+    code === 'TRANSCRIPTION_PROVIDER_UNAVAILABLE' ||
+    code === 'TRANSCRIPTION_PROVIDER_ERROR'
+  );
+}
+
 class TranscriptionProcessor implements OnModuleInit, OnModuleDestroy {
   private worker?: Worker;
   private repo: PipelineRepository;
@@ -107,8 +116,16 @@ class TranscriptionProcessor implements OnModuleInit, OnModuleDestroy {
           const message = error instanceof Error ? error.message : String(error);
           const errorCode =
             error instanceof TranscriptionProviderError ? error.code : 'TRANSCRIPTION_ERROR';
+          const configuredAttempts = Number(job.opts.attempts ?? 1);
+          const hasAttemptsLeft = job.attemptsMade + 1 < configuredAttempts;
+          const retryable = isRetryableTranscriptionCode(errorCode);
+
+          if (retryable && hasAttemptsLeft) {
+            throw error;
+          }
+
           await this.repo.setError(payload.jobId, errorCode, message);
-          throw error;
+          return;
         }
       },
       {

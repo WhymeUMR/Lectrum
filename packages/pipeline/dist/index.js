@@ -33,8 +33,12 @@ async function ensurePipelineSchema(pool) {
         transcript_path TEXT,
         transcript_text TEXT,
         transcript_json TEXT,
+        highlights_path TEXT,
+        highlights_json TEXT,
         flashcards_path TEXT,
         flashcards_json TEXT,
+        summary_path TEXT,
+        summary_json TEXT,
         error_code TEXT,
         error_message TEXT,
         requested_language TEXT NOT NULL,
@@ -58,6 +62,18 @@ async function ensurePipelineSchema(pool) {
 
       ALTER TABLE lecture_jobs
       ADD COLUMN IF NOT EXISTS transcript_json TEXT;
+
+      ALTER TABLE lecture_jobs
+      ADD COLUMN IF NOT EXISTS highlights_path TEXT;
+
+      ALTER TABLE lecture_jobs
+      ADD COLUMN IF NOT EXISTS highlights_json TEXT;
+
+      ALTER TABLE lecture_jobs
+      ADD COLUMN IF NOT EXISTS summary_path TEXT;
+
+      ALTER TABLE lecture_jobs
+      ADD COLUMN IF NOT EXISTS summary_json TEXT;
     `);
     }
     finally {
@@ -149,6 +165,24 @@ class PipelineRepository {
       WHERE job_id = $1
       `, [jobId, flashcardsPath, flashcardsJson]);
     }
+    async saveSummary(jobId, summaryPath, summaryJson) {
+        await this.pool.query(`
+      UPDATE lecture_jobs
+      SET summary_path = $2,
+          summary_json = $3,
+          updated_at = NOW()
+      WHERE job_id = $1
+      `, [jobId, summaryPath, summaryJson]);
+    }
+    async saveHighlights(jobId, highlightsPath, highlightsJson) {
+        await this.pool.query(`
+      UPDATE lecture_jobs
+      SET highlights_path = $2,
+          highlights_json = $3,
+          updated_at = NOW()
+      WHERE job_id = $1
+      `, [jobId, highlightsPath, highlightsJson]);
+    }
     async getJob(jobId) {
         const result = await this.pool.query(`
       SELECT
@@ -163,8 +197,12 @@ class PipelineRepository {
         transcript_path AS "transcriptPath",
         transcript_text AS "transcriptText",
         transcript_json AS "transcriptJson",
+        highlights_path AS "highlightsPath",
+        highlights_json AS "highlightsJson",
         flashcards_path AS "flashcardsPath",
         flashcards_json AS "flashcardsJson",
+        summary_path AS "summaryPath",
+        summary_json AS "summaryJson",
         error_code AS "errorCode",
         error_message AS "errorMessage",
         requested_language AS "requestedLanguage",
