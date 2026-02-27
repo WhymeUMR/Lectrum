@@ -10,7 +10,7 @@
 <body>
   <h1>Lecture-to-Flashcards Prototype</h1>
 
-  <p>Тестовый прототип</p>
+  <p>Загрузите файл, получите полную транскрипцию, важные таймкоды и по запросу сгенерируйте карточки.</p>
 
   <form id="upload-form">
     <label for="audio-file">Аудио файл:</label>
@@ -27,12 +27,36 @@
   <h2>Результат JSON</h2>
   <pre id="result-output"></pre>
 
+  <h2>Важные таймкоды (AI)</h2>
+  <pre id="highlights-output"></pre>
+
+  <h2>Полная транскрипция</h2>
+  <pre id="transcript-output"></pre>
+
+  <h2>Генерация карточек</h2>
+  <form id="flashcards-form">
+    <label for="cards-count">Количество карточек (1-10):</label>
+    <input id="cards-count" name="cards-count" type="number" min="1" max="10" value="5" required />
+    <button id="flashcards-btn" type="submit" disabled>Сгенерировать карточки</button>
+  </form>
+
+  <h2>Карточки JSON</h2>
+  <pre id="flashcards-output"></pre>
+
   <script>
     const form = document.getElementById('upload-form');
     const fileInput = document.getElementById('audio-file');
     const statusOutput = document.getElementById('status-output');
     const errorOutput = document.getElementById('error-output');
     const resultOutput = document.getElementById('result-output');
+    const highlightsOutput = document.getElementById('highlights-output');
+    const transcriptOutput = document.getElementById('transcript-output');
+    const flashcardsForm = document.getElementById('flashcards-form');
+    const flashcardsOutput = document.getElementById('flashcards-output');
+    const flashcardsBtn = document.getElementById('flashcards-btn');
+    const cardsCountInput = document.getElementById('cards-count');
+
+    let currentJobId = null;
 
     function setStatus(text) {
       statusOutput.textContent = text;
@@ -46,7 +70,19 @@
       resultOutput.textContent = JSON.stringify(obj, null, 2);
     }
 
-    async function pollResult(jobId) {
+    function setHighlights(obj) {
+      highlightsOutput.textContent = JSON.stringify(obj, null, 2);
+    }
+
+    function setTranscript(obj) {
+      transcriptOutput.textContent = JSON.stringify(obj, null, 2);
+    }
+
+    function setFlashcards(obj) {
+      flashcardsOutput.textContent = JSON.stringify(obj, null, 2);
+    }
+
+    async function pollUntilCompleted(jobId) {
       for (let i = 0; i < 180; i++) {
         const res = await fetch(`/api/v1/jobs/${jobId}/result`);
         let data = null;
@@ -59,13 +95,13 @@
         if (res.status === 200) {
           setStatus('COMPLETED');
           setResult(data);
-          return;
+          return data;
         }
 
         if (res.status === 422) {
           setStatus('FAILED');
           setError(JSON.stringify(data, null, 2));
-          return;
+          return null;
         }
 
         if (res.status === 202) {
@@ -78,16 +114,60 @@
         }
 
         setError(`Неожиданный статус result API: ${res.status}\n${JSON.stringify(data, null, 2)}`);
-        return;
+        return null;
       }
 
       setError('Таймаут ожидания результата');
+      return null;
+    }
+
+    async function loadTranscript(jobId) {
+      const res = await fetch(`/api/v1/jobs/${jobId}/transcript`);
+      const data = await res.json();
+      setTranscript(data);
+    }
+
+    async function loadHighlights(jobId) {
+      const res = await fetch(`/api/v1/jobs/${jobId}/highlights`);
+      const data = await res.json();
+      setHighlights(data);
+    }
+
+    async function pollFlashcards(jobId) {
+      for (let i = 0; i < 180; i++) {
+        const res = await fetch(`/api/v1/jobs/${jobId}/result`);
+        const data = await res.json();
+        if (res.status === 422) {
+          setStatus('FAILED');
+          setError(JSON.stringify(data, null, 2));
+          return;
+        }
+        if (res.status === 202) {
+          setStatus(`Генерация карточек... ${data.progress || 0}%`);
+          await new Promise((resolve) =>
+            setTimeout(resolve, Number(data.recommendedPollIntervalMs || 1500))
+          );
+          continue;
+        }
+        if (res.status === 200) {
+          setResult(data);
+          setFlashcards(data.flashcards || { message: 'Карточки еще не сгенерированы' });
+          setStatus('COMPLETED');
+          return;
+        }
+      }
+      setError('Таймаут генерации карточек');
     }
 
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       setError('');
       setResult({});
+      setTranscript({});
+      setHighlights({});
+      setFlashcards({});
+      flashcardsBtn.disabled = true;
+      currentJobId = null;
 
       const file = fileInput.files && fileInput.files[0];
       if (!file) {
@@ -119,7 +199,44 @@
 
         const jobId = ingestData.jobId;
         setStatus(`Job создан: ${jobId}`);
-        await pollResult(jobId);
+        const finalData = await pollUntilCompleted(jobId);
+        if (!finalData) return;
+        currentJobId = jobId;
+        flashcardsBtn.disabled = false;
+        await loadTranscript(jobId);
+        await loadHighlights(jobId);
+      } catch (error) {
+        setStatus('Ошибка');
+        setError(error instanceof Error ? error.message : String(error));
+      }
+    });
+
+    flashcardsForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      setError('');
+      if (!currentJobId) {
+        setError('Сначала загрузите и обработайте аудио');
+        return;
+      }
+      const count = Number(cardsCountInput.value || 5);
+      if (!Number.isInteger(count) || count < 1 || count > 10) {
+        setError('Количество карточек должно быть от 1 до 10');
+        return;
+      }
+      try {
+        setStatus('Отправка запроса на генерацию карточек...');
+        const res = await fetch(`/api/v1/jobs/${currentJobId}/flashcards`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ count })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setError(JSON.stringify(data, null, 2));
+          return;
+        }
+        setStatus(`Карточки поставлены в очередь: ${count}`);
+        await pollFlashcards(currentJobId);
       } catch (error) {
         setStatus('Ошибка');
         setError(error instanceof Error ? error.message : String(error));

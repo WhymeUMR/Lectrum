@@ -122,68 +122,60 @@ export declare const FlashcardGenerationJobSchema: z.ZodObject<{
     maxCards?: number | undefined;
 }>;
 export declare const FlashcardSchema: z.ZodObject<{
-    question: z.ZodString;
-    answer: z.ZodString;
-    hints: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
-    tags: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
-    difficulty: z.ZodDefault<z.ZodEnum<["easy", "medium", "hard"]>>;
+    sectionTitle: z.ZodString;
+    description: z.ZodString;
+    keyInfo: z.ZodString;
+    imagePrompt: z.ZodString;
 }, "strict", z.ZodTypeAny, {
-    question: string;
-    answer: string;
-    hints: string[];
-    tags: string[];
-    difficulty: "easy" | "medium" | "hard";
+    sectionTitle: string;
+    description: string;
+    keyInfo: string;
+    imagePrompt: string;
 }, {
-    question: string;
-    answer: string;
-    hints?: string[] | undefined;
-    tags?: string[] | undefined;
-    difficulty?: "easy" | "medium" | "hard" | undefined;
+    sectionTitle: string;
+    description: string;
+    keyInfo: string;
+    imagePrompt: string;
 }>;
 export declare const FlashcardDeckSchema: z.ZodObject<{
     schemaVersion: z.ZodLiteral<"1.0">;
     lectureId: z.ZodString;
     generatedAt: z.ZodString;
     cards: z.ZodArray<z.ZodObject<{
-        question: z.ZodString;
-        answer: z.ZodString;
-        hints: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
-        tags: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
-        difficulty: z.ZodDefault<z.ZodEnum<["easy", "medium", "hard"]>>;
+        sectionTitle: z.ZodString;
+        description: z.ZodString;
+        keyInfo: z.ZodString;
+        imagePrompt: z.ZodString;
     }, "strict", z.ZodTypeAny, {
-        question: string;
-        answer: string;
-        hints: string[];
-        tags: string[];
-        difficulty: "easy" | "medium" | "hard";
+        sectionTitle: string;
+        description: string;
+        keyInfo: string;
+        imagePrompt: string;
     }, {
-        question: string;
-        answer: string;
-        hints?: string[] | undefined;
-        tags?: string[] | undefined;
-        difficulty?: "easy" | "medium" | "hard" | undefined;
+        sectionTitle: string;
+        description: string;
+        keyInfo: string;
+        imagePrompt: string;
     }>, "many">;
 }, "strict", z.ZodTypeAny, {
     lectureId: string;
     schemaVersion: "1.0";
     generatedAt: string;
     cards: {
-        question: string;
-        answer: string;
-        hints: string[];
-        tags: string[];
-        difficulty: "easy" | "medium" | "hard";
+        sectionTitle: string;
+        description: string;
+        keyInfo: string;
+        imagePrompt: string;
     }[];
 }, {
     lectureId: string;
     schemaVersion: "1.0";
     generatedAt: string;
     cards: {
-        question: string;
-        answer: string;
-        hints?: string[] | undefined;
-        tags?: string[] | undefined;
-        difficulty?: "easy" | "medium" | "hard" | undefined;
+        sectionTitle: string;
+        description: string;
+        keyInfo: string;
+        imagePrompt: string;
     }[];
 }>;
 export type IngestionJobPayload = z.infer<typeof IngestionJobSchema>;

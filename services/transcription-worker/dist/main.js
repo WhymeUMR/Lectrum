@@ -55,16 +55,15 @@ let TranscriptionProcessor = class TranscriptionProcessor {
             OPENAI_API_KEY: env.TRANSCRIPTION_OPENAI_API_KEY ?? env.OPENAI_API_KEY,
             OPENAI_BASE_URL: env.TRANSCRIPTION_OPENAI_BASE_URL ?? env.OPENAI_BASE_URL,
             TRANSCRIPTION_OPENAI_MODEL: env.TRANSCRIPTION_OPENAI_MODEL,
+            DEEPGRAM_API_KEY: env.DEEPGRAM_API_KEY,
+            DEEPGRAM_BASE_URL: env.DEEPGRAM_BASE_URL,
+            DEEPGRAM_MODEL: env.DEEPGRAM_MODEL,
             TRANSCRIPTION_PROVIDER_TIMEOUT_MS: env.TRANSCRIPTION_PROVIDER_TIMEOUT_MS
         });
     }
     async onModuleInit() {
         await this.repo.ensureSchema();
         const redis = (0, config_1.buildRedisConnection)(this.env);
-        this.flashcardQueue = new bullmq_1.Queue(contracts_1.QUEUE_NAMES.flashcard, {
-            ...redis,
-            defaultJobOptions: contracts_1.QUEUE_POLICIES.flashcard
-        });
         this.worker = new bullmq_1.Worker(contracts_1.QUEUE_NAMES.transcription, async (job) => {
             const payload = job.data;
             try {
@@ -86,13 +85,7 @@ let TranscriptionProcessor = class TranscriptionProcessor {
                 const transcriptPayload = JSON.stringify(transcriptResult, null, 2);
                 await (0, pipeline_1.writeArtifact)(this.env.ARTIFACTS_DIR, transcriptRelativePath, transcriptPayload);
                 await this.repo.saveTranscriptResult(payload.jobId, transcriptRelativePath, transcriptText, transcriptPayload);
-                await this.repo.updateStatus(payload.jobId, 'GENERATING_FLASHCARDS');
-                await this.flashcardQueue?.add('generate', {
-                    jobId: payload.jobId,
-                    lectureId: payload.lectureId,
-                    transcriptText,
-                    maxCards: 20
-                });
+                await this.repo.updateStatus(payload.jobId, 'COMPLETED');
             }
             catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
@@ -108,7 +101,6 @@ let TranscriptionProcessor = class TranscriptionProcessor {
     }
     async onModuleDestroy() {
         await this.worker?.close();
-        await this.flashcardQueue?.close();
         await this.repo.close();
     }
 };

@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import path from 'node:path';
 import { Controller, Get, Inject, Module, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { Job, Queue, Worker } from 'bullmq';
+import { Job, Worker } from 'bullmq';
 import { QUEUE_NAMES, QUEUE_POLICIES, TranscriptionJobPayload } from '@lecture/contracts';
 import { APP_ENV, AppEnv, SharedConfigModule, buildRedisConnection } from '@lecture/config';
 import { PipelineRepository, writeArtifact } from '@lecture/pipeline';
@@ -39,7 +39,6 @@ async function transcribeWithRetry(
 
 class TranscriptionProcessor implements OnModuleInit, OnModuleDestroy {
   private worker?: Worker;
-  private flashcardQueue?: Queue;
   private repo: PipelineRepository;
   private provider: TranscriptionProvider;
 
@@ -53,6 +52,9 @@ class TranscriptionProcessor implements OnModuleInit, OnModuleDestroy {
       OPENAI_API_KEY: env.TRANSCRIPTION_OPENAI_API_KEY ?? env.OPENAI_API_KEY,
       OPENAI_BASE_URL: env.TRANSCRIPTION_OPENAI_BASE_URL ?? env.OPENAI_BASE_URL,
       TRANSCRIPTION_OPENAI_MODEL: env.TRANSCRIPTION_OPENAI_MODEL,
+      DEEPGRAM_API_KEY: env.DEEPGRAM_API_KEY,
+      DEEPGRAM_BASE_URL: env.DEEPGRAM_BASE_URL,
+      DEEPGRAM_MODEL: env.DEEPGRAM_MODEL,
       TRANSCRIPTION_PROVIDER_TIMEOUT_MS: env.TRANSCRIPTION_PROVIDER_TIMEOUT_MS
     });
   }
@@ -60,10 +62,6 @@ class TranscriptionProcessor implements OnModuleInit, OnModuleDestroy {
   async onModuleInit() {
     await this.repo.ensureSchema();
     const redis = buildRedisConnection(this.env);
-    this.flashcardQueue = new Queue(QUEUE_NAMES.flashcard, {
-      ...redis,
-      defaultJobOptions: QUEUE_POLICIES.flashcard
-    });
 
     this.worker = new Worker(
       QUEUE_NAMES.transcription,
@@ -104,14 +102,7 @@ class TranscriptionProcessor implements OnModuleInit, OnModuleDestroy {
             transcriptText,
             transcriptPayload
           );
-          await this.repo.updateStatus(payload.jobId, 'GENERATING_FLASHCARDS');
-
-          await this.flashcardQueue?.add('generate', {
-            jobId: payload.jobId,
-            lectureId: payload.lectureId,
-            transcriptText,
-            maxCards: 20
-          });
+          await this.repo.updateStatus(payload.jobId, 'COMPLETED');
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           const errorCode =
@@ -130,7 +121,6 @@ class TranscriptionProcessor implements OnModuleInit, OnModuleDestroy {
 
   async onModuleDestroy() {
     await this.worker?.close();
-    await this.flashcardQueue?.close();
     await this.repo.close();
   }
 }

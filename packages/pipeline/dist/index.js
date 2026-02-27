@@ -44,9 +44,10 @@ async function ensurePipelineSchema(pool) {
 
       CREATE INDEX IF NOT EXISTS idx_lecture_jobs_lecture_id ON lecture_jobs(lecture_id);
       CREATE INDEX IF NOT EXISTS idx_lecture_jobs_status ON lecture_jobs(status);
+      DROP INDEX IF EXISTS uq_single_active_job;
       CREATE UNIQUE INDEX IF NOT EXISTS uq_single_active_job
       ON lecture_jobs ((1))
-      WHERE status NOT IN ('COMPLETED', 'FAILED');
+      WHERE status IN ('QUEUED', 'INGESTING', 'INGESTED', 'TRANSCRIBING');
     `);
         await pool.query(`
       ALTER TABLE lecture_jobs
@@ -107,7 +108,7 @@ class PipelineRepository {
         status,
         lecture_id AS "lectureId"
       FROM lecture_jobs
-      WHERE status NOT IN ('COMPLETED', 'FAILED')
+      WHERE status IN ('QUEUED', 'INGESTING', 'INGESTED', 'TRANSCRIBING')
       ORDER BY created_at ASC
       LIMIT 1
       `);

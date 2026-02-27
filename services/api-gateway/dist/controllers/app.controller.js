@@ -23,11 +23,14 @@ const queue_service_1 = require("../services/queue.service");
 const job_store_service_1 = require("../services/job-store.service");
 const create_ingestion_request_schema_1 = require("../dto/create-ingestion-request.schema");
 const zod_validation_pipe_1 = require("../pipes/zod-validation.pipe");
+const generate_flashcards_request_schema_1 = require("../dto/generate-flashcards-request.schema");
+const highlight_service_1 = require("../services/highlight.service");
 let AppController = class AppController {
-    constructor(env, queueService, store) {
+    constructor(env, queueService, store, highlightService) {
         this.env = env;
         this.queueService = queueService;
         this.store = store;
+        this.highlightService = highlightService;
     }
     health() {
         return {
@@ -133,11 +136,107 @@ let AppController = class AppController {
         return {
             jobId: job.jobId,
             lectureId: job.lectureId,
+            status: job.status,
             transcriptPath: job.transcriptPath,
             transcriptText: job.transcriptText,
             transcript: job.transcriptJson ? JSON.parse(job.transcriptJson) : null,
             flashcardsPath: job.flashcardsPath,
             flashcards: job.flashcardsJson ? JSON.parse(job.flashcardsJson) : null
+        };
+    }
+    async getFullTranscript(jobId, response) {
+        const job = await this.store.repo.getJob(jobId);
+        if (!job) {
+            throw new common_1.NotFoundException(`Job ${jobId} not found`);
+        }
+        if (job.status === 'FAILED') {
+            response.status(common_1.HttpStatus.UNPROCESSABLE_ENTITY);
+            return {
+                jobId,
+                status: job.status,
+                message: 'Job processing failed',
+                errorCode: job.errorCode,
+                errorMessage: job.errorMessage
+            };
+        }
+        if (!job.transcriptJson) {
+            response.status(common_1.HttpStatus.ACCEPTED);
+            return {
+                jobId,
+                status: job.status,
+                message: 'Transcript is not ready yet'
+            };
+        }
+        return {
+            jobId,
+            lectureId: job.lectureId,
+            transcript: JSON.parse(job.transcriptJson)
+        };
+    }
+    async getTranscriptHighlights(jobId, response) {
+        const job = await this.store.repo.getJob(jobId);
+        if (!job) {
+            throw new common_1.NotFoundException(`Job ${jobId} not found`);
+        }
+        if (job.status === 'FAILED') {
+            response.status(common_1.HttpStatus.UNPROCESSABLE_ENTITY);
+            return {
+                jobId,
+                status: job.status,
+                message: 'Job processing failed',
+                errorCode: job.errorCode,
+                errorMessage: job.errorMessage
+            };
+        }
+        if (!job.transcriptJson) {
+            response.status(common_1.HttpStatus.ACCEPTED);
+            return {
+                jobId,
+                status: job.status,
+                message: 'Transcript highlights are not ready yet'
+            };
+        }
+        const transcript = JSON.parse(job.transcriptJson);
+        const highlights = await this.highlightService.getHighlights(transcript, 5);
+        return {
+            jobId,
+            lectureId: job.lectureId,
+            highlights
+        };
+    }
+    async generateFlashcards(jobId, body, response) {
+        const job = await this.store.repo.getJob(jobId);
+        if (!job) {
+            throw new common_1.NotFoundException(`Job ${jobId} not found`);
+        }
+        if (job.status === 'FAILED') {
+            throw new common_1.ConflictException('Cannot generate flashcards for failed job');
+        }
+        if (!job.transcriptText) {
+            throw new common_1.ConflictException('Transcript is not ready yet');
+        }
+        if (job.status === 'GENERATING_FLASHCARDS') {
+            throw new common_1.ConflictException('Flashcards generation already in progress');
+        }
+        try {
+            await this.store.repo.updateStatus(jobId, 'GENERATING_FLASHCARDS');
+            await this.queueService.enqueueFlashcard({
+                jobId,
+                lectureId: job.lectureId,
+                transcriptText: job.transcriptText,
+                maxCards: body.count
+            });
+        }
+        catch (error) {
+            await this.store.repo.updateStatus(jobId, 'COMPLETED');
+            const message = error instanceof Error ? error.message : String(error);
+            throw new common_1.ServiceUnavailableException(`Flashcards queue unavailable: ${message}`);
+        }
+        response.status(common_1.HttpStatus.ACCEPTED);
+        return {
+            jobId,
+            status: 'GENERATING_FLASHCARDS',
+            requestedCards: body.count
         };
     }
     statusToProgress(status) {
@@ -170,7 +269,7 @@ __decorate([
     (0, common_1.Post)('/api/v1/lectures/ingest'),
     (0, common_1.UseInterceptors)((0, platform_express_1.FileInterceptor)('file', {
         limits: {
-            fileSize: Number(process.env.UPLOAD_MAX_FILE_SIZE_BYTES || 50 * 1024 * 1024)
+            fileSize: Number(process.env.UPLOAD_MAX_FILE_SIZE_BYTES || 200 * 1024 * 1024)
         }
     })),
     (0, common_1.UsePipes)(new zod_validation_pipe_1.ZodValidationPipe(create_ingestion_request_schema_1.CreateIngestionRequestSchema)),
@@ -195,10 +294,36 @@ __decorate([
     __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", Promise)
 ], AppController.prototype, "getJobResult", null);
+__decorate([
+    (0, common_1.Get)('/api/v1/jobs/:jobId/transcript'),
+    __param(0, (0, common_1.Param)('jobId')),
+    __param(1, (0, common_1.Res)({ passthrough: true })),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", Promise)
+], AppController.prototype, "getFullTranscript", null);
+__decorate([
+    (0, common_1.Get)('/api/v1/jobs/:jobId/highlights'),
+    __param(0, (0, common_1.Param)('jobId')),
+    __param(1, (0, common_1.Res)({ passthrough: true })),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", Promise)
+], AppController.prototype, "getTranscriptHighlights", null);
+__decorate([
+    (0, common_1.Post)('/api/v1/jobs/:jobId/flashcards'),
+    __param(0, (0, common_1.Param)('jobId')),
+    __param(1, (0, common_1.Body)(new zod_validation_pipe_1.ZodValidationPipe(generate_flashcards_request_schema_1.GenerateFlashcardsRequestSchema))),
+    __param(2, (0, common_1.Res)({ passthrough: true })),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object, Object]),
+    __metadata("design:returntype", Promise)
+], AppController.prototype, "generateFlashcards", null);
 exports.AppController = AppController = __decorate([
     (0, common_1.Controller)(),
     __param(0, (0, common_1.Inject)(config_1.APP_ENV)),
     __metadata("design:paramtypes", [Object, queue_service_1.QueueService,
-        job_store_service_1.JobStoreService])
+        job_store_service_1.JobStoreService,
+        highlight_service_1.HighlightService])
 ], AppController);
 //# sourceMappingURL=app.controller.js.map

@@ -48,6 +48,13 @@ export interface OpenAIProviderOptions {
   timeoutMs: number;
 }
 
+export interface DeepgramProviderOptions {
+  apiKey: string;
+  baseUrl: string;
+  model?: string;
+  timeoutMs: number;
+}
+
 function sanitizeTranscriptSeed(input: string): string {
   let out = '';
   for (const char of input) {
@@ -153,6 +160,92 @@ export class OpenAIWhisperTranscriptionProvider implements TranscriptionProvider
   }
 }
 
+export class DeepgramTranscriptionProvider implements TranscriptionProvider {
+  constructor(private readonly options: DeepgramProviderOptions) {}
+
+  async transcribe(req: TranscriptionRequest): Promise<TranscriptResult> {
+    const filePath = path.join(req.artifactsDir, req.storagePath);
+    const content = await readFile(filePath);
+
+    const params = new URLSearchParams();
+    if (this.options.model) {
+      params.set('model', this.options.model);
+    }
+    if (req.requestedLanguage) {
+      params.set('language', req.requestedLanguage);
+    }
+    const endpoint = `${this.options.baseUrl}/listen${params.size > 0 ? `?${params.toString()}` : ''}`;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.options.timeoutMs);
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          authorization: `Token ${this.options.apiKey}`,
+          'content-type': req.mimeType ?? 'audio/*'
+        },
+        body: content,
+        signal: controller.signal
+      });
+
+      if (!response.ok) {
+        throw mapHttpError(response.status, await response.text());
+      }
+
+      const data = (await response.json()) as {
+        metadata?: { duration?: number };
+        results?: {
+          channels?: Array<{
+            alternatives?: Array<{
+              transcript?: string;
+              words?: Array<{
+                start?: number;
+                end?: number;
+                word?: string;
+                punctuated_word?: string;
+              }>;
+            }>;
+          }>;
+        };
+      };
+
+      const alt = data.results?.channels?.[0]?.alternatives?.[0];
+      const text = String(alt?.transcript ?? '').trim();
+      const words = alt?.words ?? [];
+      const segments =
+        words.length > 0
+          ? words.map((word) => ({
+              start: Number(word.start ?? 0),
+              end: Number(word.end ?? word.start ?? 0),
+              text: String(word.punctuated_word ?? word.word ?? '').trim()
+            }))
+          : [{ start: 0, end: Number(data.metadata?.duration ?? 0), text }];
+
+      return {
+        text,
+        segments,
+        duration: Number(data.metadata?.duration ?? (segments[segments.length - 1]?.end ?? 0)),
+        language: req.requestedLanguage || 'unknown'
+      };
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        throw new TranscriptionProviderError(
+          `STT provider request timed out after ${this.options.timeoutMs}ms`,
+          'TRANSCRIPTION_PROVIDER_TIMEOUT'
+        );
+      }
+      if (error instanceof TranscriptionProviderError) {
+        throw error;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      throw new TranscriptionProviderError(message, 'TRANSCRIPTION_PROVIDER_ERROR');
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}
+
 function mapHttpError(status: number, message: string): TranscriptionProviderError {
   if (status === 400) return new TranscriptionProviderError(message, 'TRANSCRIPTION_PROVIDER_BAD_REQUEST');
   if (status === 401 || status === 403)
@@ -165,10 +258,13 @@ function mapHttpError(status: number, message: string): TranscriptionProviderErr
 }
 
 export function createTranscriptionProvider(env: {
-  TRANSCRIPTION_PROVIDER: 'mock' | 'openai';
+  TRANSCRIPTION_PROVIDER: 'mock' | 'openai' | 'deepgram';
   OPENAI_API_KEY?: string;
   OPENAI_BASE_URL?: string;
   TRANSCRIPTION_OPENAI_MODEL: string;
+  DEEPGRAM_API_KEY?: string;
+  DEEPGRAM_BASE_URL?: string;
+  DEEPGRAM_MODEL?: string;
   TRANSCRIPTION_PROVIDER_TIMEOUT_MS: number;
 }): TranscriptionProvider {
   if (env.TRANSCRIPTION_PROVIDER === 'openai') {
@@ -179,6 +275,17 @@ export function createTranscriptionProvider(env: {
       apiKey: env.OPENAI_API_KEY,
       baseUrl: env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',
       model: env.TRANSCRIPTION_OPENAI_MODEL,
+      timeoutMs: env.TRANSCRIPTION_PROVIDER_TIMEOUT_MS
+    });
+  }
+  if (env.TRANSCRIPTION_PROVIDER === 'deepgram') {
+    if (!env.DEEPGRAM_API_KEY) {
+      throw new Error('DEEPGRAM_API_KEY is required when TRANSCRIPTION_PROVIDER=deepgram');
+    }
+    return new DeepgramTranscriptionProvider({
+      apiKey: env.DEEPGRAM_API_KEY,
+      baseUrl: env.DEEPGRAM_BASE_URL ?? 'https://api.deepgram.com/v1',
+      model: env.DEEPGRAM_MODEL,
       timeoutMs: env.TRANSCRIPTION_PROVIDER_TIMEOUT_MS
     });
   }

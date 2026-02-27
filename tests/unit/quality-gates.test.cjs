@@ -9,20 +9,18 @@ test('quality gates accept strong deck', () => {
     generatedAt: new Date().toISOString(),
     cards: [
       {
-        question: 'Как работает детерминированный repair path?',
-        answer:
+        sectionTitle: 'Repair path',
+        description:
           'Сервис извлекает JSON-кандидат, нормализует поля и повторно валидирует по строгой схеме.',
-        hints: ['repair'],
-        tags: ['json', 'reliability'],
-        difficulty: 'medium'
+        keyInfo: 'Нормализация полей + строгая проверка схемы.',
+        imagePrompt: 'Пайплайн восстановления JSON'
       },
       {
-        question: 'Зачем нужен retry перед fallback?',
-        answer:
+        sectionTitle: 'Retry',
+        description:
           'Retry позволяет получить корректный JSON от модели до перехода на аварийный сценарий.',
-        hints: ['retry'],
-        tags: ['pipeline'],
-        difficulty: 'medium'
+        keyInfo: 'Вторая попытка снижает долю fallback-случаев.',
+        imagePrompt: 'Диаграмма повторной генерации'
       }
     ]
   };
@@ -39,8 +37,8 @@ test('quality gates reject weak deck', () => {
     lectureId: 'lec-bad',
     generatedAt: new Date().toISOString(),
     cards: [
-      { question: 'Q?', answer: 'A', hints: [], tags: [], difficulty: 'easy' },
-      { question: 'Q?', answer: 'A', hints: [], tags: [], difficulty: 'easy' }
+      { sectionTitle: 'X', description: 'bad', keyInfo: 'bad', imagePrompt: 'x' },
+      { sectionTitle: 'X', description: 'bad', keyInfo: 'bad', imagePrompt: 'x' }
     ]
   };
 

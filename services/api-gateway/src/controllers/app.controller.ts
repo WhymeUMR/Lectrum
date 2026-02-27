@@ -25,13 +25,16 @@ import { QueueService } from '../services/queue.service';
 import { JobStoreService } from '../services/job-store.service';
 import { CreateIngestionRequestSchema } from '../dto/create-ingestion-request.schema';
 import { ZodValidationPipe } from '../pipes/zod-validation.pipe';
+import { GenerateFlashcardsRequestSchema } from '../dto/generate-flashcards-request.schema';
+import { HighlightService } from '../services/highlight.service';
 
 @Controller()
 export class AppController {
   constructor(
     @Inject(APP_ENV) private readonly env: AppEnv,
     private readonly queueService: QueueService,
-    private readonly store: JobStoreService
+    private readonly store: JobStoreService,
+    private readonly highlightService: HighlightService
   ) {}
 
   @Get('/health')
@@ -54,7 +57,7 @@ export class AppController {
   @UseInterceptors(
     FileInterceptor('file', {
       limits: {
-        fileSize: Number(process.env.UPLOAD_MAX_FILE_SIZE_BYTES || 50 * 1024 * 1024)
+        fileSize: Number(process.env.UPLOAD_MAX_FILE_SIZE_BYTES || 200 * 1024 * 1024)
       }
     })
   )
@@ -165,11 +168,121 @@ export class AppController {
     return {
       jobId: job.jobId,
       lectureId: job.lectureId,
+      status: job.status,
       transcriptPath: job.transcriptPath,
       transcriptText: job.transcriptText,
       transcript: job.transcriptJson ? JSON.parse(job.transcriptJson) : null,
       flashcardsPath: job.flashcardsPath,
       flashcards: job.flashcardsJson ? JSON.parse(job.flashcardsJson) : null
+    };
+  }
+
+  @Get('/api/v1/jobs/:jobId/transcript')
+  async getFullTranscript(@Param('jobId') jobId: string, @Res({ passthrough: true }) response: Response) {
+    const job = await this.store.repo.getJob(jobId);
+    if (!job) {
+      throw new NotFoundException(`Job ${jobId} not found`);
+    }
+    if (job.status === 'FAILED') {
+      response.status(HttpStatus.UNPROCESSABLE_ENTITY);
+      return {
+        jobId,
+        status: job.status,
+        message: 'Job processing failed',
+        errorCode: job.errorCode,
+        errorMessage: job.errorMessage
+      };
+    }
+    if (!job.transcriptJson) {
+      response.status(HttpStatus.ACCEPTED);
+      return {
+        jobId,
+        status: job.status,
+        message: 'Transcript is not ready yet'
+      };
+    }
+    return {
+      jobId,
+      lectureId: job.lectureId,
+      transcript: JSON.parse(job.transcriptJson)
+    };
+  }
+
+  @Get('/api/v1/jobs/:jobId/highlights')
+  async getTranscriptHighlights(
+    @Param('jobId') jobId: string,
+    @Res({ passthrough: true }) response: Response
+  ) {
+    const job = await this.store.repo.getJob(jobId);
+    if (!job) {
+      throw new NotFoundException(`Job ${jobId} not found`);
+    }
+    if (job.status === 'FAILED') {
+      response.status(HttpStatus.UNPROCESSABLE_ENTITY);
+      return {
+        jobId,
+        status: job.status,
+        message: 'Job processing failed',
+        errorCode: job.errorCode,
+        errorMessage: job.errorMessage
+      };
+    }
+    if (!job.transcriptJson) {
+      response.status(HttpStatus.ACCEPTED);
+      return {
+        jobId,
+        status: job.status,
+        message: 'Transcript highlights are not ready yet'
+      };
+    }
+    const transcript = JSON.parse(job.transcriptJson) as { text?: string; segments?: Array<{ start?: number; end?: number; text?: string }> };
+    const highlights = await this.highlightService.getHighlights(transcript, 5);
+    return {
+      jobId,
+      lectureId: job.lectureId,
+      highlights
+    };
+  }
+
+  @Post('/api/v1/jobs/:jobId/flashcards')
+  async generateFlashcards(
+    @Param('jobId') jobId: string,
+    @Body(new ZodValidationPipe(GenerateFlashcardsRequestSchema)) body: { count: number },
+    @Res({ passthrough: true }) response: Response
+  ) {
+    const job = await this.store.repo.getJob(jobId);
+    if (!job) {
+      throw new NotFoundException(`Job ${jobId} not found`);
+    }
+    if (job.status === 'FAILED') {
+      throw new ConflictException('Cannot generate flashcards for failed job');
+    }
+    if (!job.transcriptText) {
+      throw new ConflictException('Transcript is not ready yet');
+    }
+    if (job.status === 'GENERATING_FLASHCARDS') {
+      throw new ConflictException('Flashcards generation already in progress');
+    }
+
+    try {
+      await this.store.repo.updateStatus(jobId, 'GENERATING_FLASHCARDS');
+      await this.queueService.enqueueFlashcard({
+        jobId,
+        lectureId: job.lectureId,
+        transcriptText: job.transcriptText,
+        maxCards: body.count
+      });
+    } catch (error) {
+      await this.store.repo.updateStatus(jobId, 'COMPLETED');
+      const message = error instanceof Error ? error.message : String(error);
+      throw new ServiceUnavailableException(`Flashcards queue unavailable: ${message}`);
+    }
+
+    response.status(HttpStatus.ACCEPTED);
+    return {
+      jobId,
+      status: 'GENERATING_FLASHCARDS',
+      requestedCards: body.count
     };
   }
 

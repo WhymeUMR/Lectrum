@@ -28,6 +28,12 @@ export interface OpenAIProviderOptions {
     model: string;
     timeoutMs: number;
 }
+export interface DeepgramProviderOptions {
+    apiKey: string;
+    baseUrl: string;
+    model?: string;
+    timeoutMs: number;
+}
 export declare class MockTranscriptionProvider implements TranscriptionProvider {
     transcribe(req: TranscriptionRequest): Promise<TranscriptResult>;
 }
@@ -36,10 +42,18 @@ export declare class OpenAIWhisperTranscriptionProvider implements Transcription
     constructor(options: OpenAIProviderOptions);
     transcribe(req: TranscriptionRequest): Promise<TranscriptResult>;
 }
+export declare class DeepgramTranscriptionProvider implements TranscriptionProvider {
+    private readonly options;
+    constructor(options: DeepgramProviderOptions);
+    transcribe(req: TranscriptionRequest): Promise<TranscriptResult>;
+}
 export declare function createTranscriptionProvider(env: {
-    TRANSCRIPTION_PROVIDER: 'mock' | 'openai';
+    TRANSCRIPTION_PROVIDER: 'mock' | 'openai' | 'deepgram';
     OPENAI_API_KEY?: string;
     OPENAI_BASE_URL?: string;
     TRANSCRIPTION_OPENAI_MODEL: string;
+    DEEPGRAM_API_KEY?: string;
+    DEEPGRAM_BASE_URL?: string;
+    DEEPGRAM_MODEL?: string;
     TRANSCRIPTION_PROVIDER_TIMEOUT_MS: number;
 }): TranscriptionProvider;

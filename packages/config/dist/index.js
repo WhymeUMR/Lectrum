@@ -11,6 +11,12 @@ exports.SharedConfigModule = exports.APP_ENV = void 0;
 exports.buildRedisConnection = buildRedisConnection;
 const common_1 = require("@nestjs/common");
 const zod_1 = require("zod");
+const emptyToUndefined = (value) => {
+    if (typeof value === 'string' && value.trim() === '') {
+        return undefined;
+    }
+    return value;
+};
 const EnvSchema = zod_1.z.object({
     APP_ENV: zod_1.z.enum(['local', 'staging', 'production']).default('local'),
     NODE_ENV: zod_1.z.enum(['development', 'test', 'production']).default('development'),
@@ -27,19 +33,22 @@ const EnvSchema = zod_1.z.object({
     TRANSCRIPTION_CHUNK_DELAY_MS: zod_1.z.coerce.number().int().positive().default(25),
     JOB_RESULT_POLL_INTERVAL_MS: zod_1.z.coerce.number().int().positive().default(2000),
     JOB_EXPECTED_MAX_PROCESSING_MS: zod_1.z.coerce.number().int().positive().default(900000),
-    UPLOAD_MAX_FILE_SIZE_BYTES: zod_1.z.coerce.number().int().positive().default(50 * 1024 * 1024),
-    TRANSCRIPTION_PROVIDER: zod_1.z.enum(['mock', 'openai']).default('mock'),
+    UPLOAD_MAX_FILE_SIZE_BYTES: zod_1.z.coerce.number().int().positive().default(200 * 1024 * 1024),
+    TRANSCRIPTION_PROVIDER: zod_1.z.enum(['mock', 'openai', 'deepgram']).default('mock'),
     TRANSCRIPTION_PROVIDER_TIMEOUT_MS: zod_1.z.coerce.number().int().positive().default(45000),
     TRANSCRIPTION_PROVIDER_RETRY_ATTEMPTS: zod_1.z.coerce.number().int().min(1).max(5).default(2),
     TRANSCRIPTION_PROVIDER_RETRY_DELAY_MS: zod_1.z.coerce.number().int().positive().default(1000),
     TRANSCRIPTION_OPENAI_MODEL: zod_1.z.string().min(1).default('whisper-1'),
-    TRANSCRIPTION_OPENAI_API_KEY: zod_1.z.string().min(1).optional(),
-    TRANSCRIPTION_OPENAI_BASE_URL: zod_1.z.string().url().optional(),
+    TRANSCRIPTION_OPENAI_API_KEY: zod_1.z.preprocess(emptyToUndefined, zod_1.z.string().min(1).optional()),
+    TRANSCRIPTION_OPENAI_BASE_URL: zod_1.z.preprocess(emptyToUndefined, zod_1.z.string().url().optional()),
+    DEEPGRAM_API_KEY: zod_1.z.preprocess(emptyToUndefined, zod_1.z.string().min(1).optional()),
+    DEEPGRAM_BASE_URL: zod_1.z.preprocess(emptyToUndefined, zod_1.z.string().url().optional()),
+    DEEPGRAM_MODEL: zod_1.z.preprocess(emptyToUndefined, zod_1.z.string().min(1).optional()),
     DATABASE_URL: zod_1.z.string().min(1).optional(),
     ARTIFACTS_DIR: zod_1.z.string().min(1).default('/app/storage'),
-    OPENAI_API_KEY: zod_1.z.string().min(1).optional(),
-    OPENAI_MODEL: zod_1.z.string().min(1).optional(),
-    OPENAI_BASE_URL: zod_1.z.string().url().optional()
+    OPENAI_API_KEY: zod_1.z.preprocess(emptyToUndefined, zod_1.z.string().min(1).optional()),
+    OPENAI_MODEL: zod_1.z.preprocess(emptyToUndefined, zod_1.z.string().min(1).optional()),
+    OPENAI_BASE_URL: zod_1.z.preprocess(emptyToUndefined, zod_1.z.string().url().optional())
 });
 exports.APP_ENV = Symbol('APP_ENV');
 function loadEnv(serviceName) {
@@ -67,6 +76,9 @@ function loadEnv(serviceName) {
         TRANSCRIPTION_OPENAI_MODEL: process.env.TRANSCRIPTION_OPENAI_MODEL,
         TRANSCRIPTION_OPENAI_API_KEY: process.env.TRANSCRIPTION_OPENAI_API_KEY,
         TRANSCRIPTION_OPENAI_BASE_URL: process.env.TRANSCRIPTION_OPENAI_BASE_URL,
+        DEEPGRAM_API_KEY: process.env.DEEPGRAM_API_KEY,
+        DEEPGRAM_BASE_URL: process.env.DEEPGRAM_BASE_URL,
+        DEEPGRAM_MODEL: process.env.DEEPGRAM_MODEL,
         DATABASE_URL: process.env.DATABASE_URL,
         ARTIFACTS_DIR: process.env.ARTIFACTS_DIR,
         OPENAI_API_KEY: process.env.OPENAI_API_KEY,

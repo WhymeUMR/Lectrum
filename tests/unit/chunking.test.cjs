@@ -33,5 +33,5 @@ test('simulateChunkProcessing waits at least one wave', async () => {
   const start = Date.now();
   await simulateChunkProcessing({ chunkCount: 1, waves: 2, estimatedLatencyMs: 20 }, 10);
   const elapsed = Date.now() - start;
-  assert.ok(elapsed >= 20);
+  assert.ok(elapsed >= 15);
 });

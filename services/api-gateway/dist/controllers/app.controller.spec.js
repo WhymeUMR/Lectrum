@@ -12,6 +12,7 @@ const common_1 = require("@nestjs/common");
     let mockQueueService;
     let mockJobStore;
     let mockEnv;
+    let mockHighlightService;
     mockEnv = {
         SERVICE_NAME: 'api-gateway',
         APP_ENV: 'test',
@@ -20,15 +21,26 @@ const common_1 = require("@nestjs/common");
         JOB_EXPECTED_MAX_PROCESSING_MS: 900000
     };
     mockQueueService = {
-        enqueueIngestion: async () => { }
+        enqueueIngestion: async () => { },
+        enqueueFlashcard: async () => { }
     };
     mockJobStore = {
         repo: {
             getActiveJob: async () => null,
             createJob: async () => { },
+            updateStatus: async () => { },
             getJob: async (id) => {
                 if (id === '123')
-                    return { jobId: '123', status: 'COMPLETED', transcriptPath: '/path', transcriptText: 'text' };
+                    return {
+                        jobId: '123',
+                        lectureId: 'l-123',
+                        status: 'COMPLETED',
+                        transcriptPath: '/path',
+                        transcriptText: 'text',
+                        transcriptJson: JSON.stringify({ text: 'text', segments: [{ start: 0, end: 1, text: 'text' }] }),
+                        flashcardsPath: null,
+                        flashcardsJson: null
+                    };
                 if (id === '456')
                     return { jobId: '456', status: 'QUEUED' };
                 if (id === '789')
@@ -37,7 +49,10 @@ const common_1 = require("@nestjs/common");
             }
         }
     };
-    controller = new app_controller_1.AppController(mockEnv, mockQueueService, mockJobStore);
+    mockHighlightService = {
+        getHighlights: async () => [{ start: 0, end: 1, text: 'text', reason: 'important' }]
+    };
+    controller = new app_controller_1.AppController(mockEnv, mockQueueService, mockJobStore, mockHighlightService);
     (0, node_test_1.test)('health endpoint returns config injected', () => {
         const res = controller.health();
         strict_1.default.strictEqual(res.status, 'ok');
@@ -117,6 +132,7 @@ const common_1 = require("@nestjs/common");
         const mockResponse = { status: () => mockResponse };
         const res = await controller.getJobResult('123', mockResponse);
         strict_1.default.strictEqual(res.transcriptText, 'text');
+        strict_1.default.strictEqual(res.status, 'COMPLETED');
     });
     (0, node_test_1.test)('getJobResult throws NotFound on unknown job', async () => {
         const mockResponse = { status: () => mockResponse };
@@ -154,6 +170,66 @@ const common_1 = require("@nestjs/common");
         const res = await controller.getJobResult('789', mockResponse);
         strict_1.default.strictEqual(res.status, 'FAILED');
         strict_1.default.strictEqual(statusCode, 422);
+    });
+    (0, node_test_1.test)('getFullTranscript returns transcript payload', async () => {
+        const mockResponse = { status: () => mockResponse };
+        const res = await controller.getFullTranscript('123', mockResponse);
+        strict_1.default.equal(res.lectureId, 'l-123');
+        strict_1.default.equal(res.transcript.text, 'text');
+    });
+    (0, node_test_1.test)('getTranscriptHighlights returns highlights list', async () => {
+        const mockResponse = { status: () => mockResponse };
+        const res = await controller.getTranscriptHighlights('123', mockResponse);
+        strict_1.default.equal(Array.isArray(res.highlights), true);
+        strict_1.default.equal(res.highlights?.[0]?.reason, 'important');
+    });
+    (0, node_test_1.test)('generateFlashcards enqueues generation request', async () => {
+        let statusCode;
+        let payload;
+        const mockResponse = {
+            status: (code) => {
+                statusCode = code;
+                return mockResponse;
+            }
+        };
+        mockQueueService.enqueueFlashcard = async (p) => {
+            payload = p;
+        };
+        const res = await controller.generateFlashcards('123', { count: 4 }, mockResponse);
+        strict_1.default.equal(statusCode, 202);
+        strict_1.default.equal(res.status, 'GENERATING_FLASHCARDS');
+        strict_1.default.equal(payload.maxCards, 4);
+    });
+    (0, node_test_1.test)('generateFlashcards rejects when transcript is missing', async () => {
+        mockJobStore.repo.getJob = async () => ({ jobId: '1', lectureId: 'l-1', status: 'QUEUED', transcriptText: null });
+        const mockResponse = { status: () => mockResponse };
+        try {
+            await controller.generateFlashcards('1', { count: 2 }, mockResponse);
+            strict_1.default.fail('should throw');
+        }
+        catch (error) {
+            strict_1.default.ok(error instanceof common_1.ConflictException);
+        }
+        finally {
+            mockJobStore.repo.getJob = async (id) => {
+                if (id === '123')
+                    return {
+                        jobId: '123',
+                        lectureId: 'l-123',
+                        status: 'COMPLETED',
+                        transcriptPath: '/path',
+                        transcriptText: 'text',
+                        transcriptJson: JSON.stringify({ text: 'text', segments: [{ start: 0, end: 1, text: 'text' }] }),
+                        flashcardsPath: null,
+                        flashcardsJson: null
+                    };
+                if (id === '456')
+                    return { jobId: '456', status: 'QUEUED' };
+                if (id === '789')
+                    return { jobId: '789', status: 'FAILED', errorCode: 'X', errorMessage: 'boom' };
+                return null;
+            };
+        }
     });
 });
 //# sourceMappingURL=app.controller.spec.js.map

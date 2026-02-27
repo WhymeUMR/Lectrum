@@ -8,6 +8,7 @@ describe('AppController', () => {
     let mockQueueService: any;
     let mockJobStore: any;
     let mockEnv: any;
+    let mockHighlightService: any;
 
     mockEnv = {
         SERVICE_NAME: 'api-gateway',
@@ -18,15 +19,26 @@ describe('AppController', () => {
     };
 
     mockQueueService = {
-        enqueueIngestion: async () => { }
+        enqueueIngestion: async () => { },
+        enqueueFlashcard: async () => { }
     };
 
     mockJobStore = {
         repo: {
             getActiveJob: async () => null,
             createJob: async () => { },
+            updateStatus: async () => { },
             getJob: async (id: string) => {
-                if (id === '123') return { jobId: '123', status: 'COMPLETED', transcriptPath: '/path', transcriptText: 'text' };
+                if (id === '123') return {
+                    jobId: '123',
+                    lectureId: 'l-123',
+                    status: 'COMPLETED',
+                    transcriptPath: '/path',
+                    transcriptText: 'text',
+                    transcriptJson: JSON.stringify({ text: 'text', segments: [{ start: 0, end: 1, text: 'text' }] }),
+                    flashcardsPath: null,
+                    flashcardsJson: null
+                };
                 if (id === '456') return { jobId: '456', status: 'QUEUED' };
                 if (id === '789') return { jobId: '789', status: 'FAILED', errorCode: 'X', errorMessage: 'boom' };
                 return null;
@@ -34,7 +46,11 @@ describe('AppController', () => {
         }
     };
 
-    controller = new AppController(mockEnv, mockQueueService, mockJobStore);
+    mockHighlightService = {
+        getHighlights: async () => [{ start: 0, end: 1, text: 'text', reason: 'important' }]
+    };
+
+    controller = new AppController(mockEnv, mockQueueService, mockJobStore, mockHighlightService);
 
     test('health endpoint returns config injected', () => {
         const res = controller.health();
@@ -122,6 +138,7 @@ describe('AppController', () => {
         const mockResponse: any = { status: () => mockResponse };
         const res = await controller.getJobResult('123', mockResponse);
         assert.strictEqual(res.transcriptText, 'text');
+        assert.strictEqual(res.status, 'COMPLETED');
     });
 
     test('getJobResult throws NotFound on unknown job', async () => {
@@ -161,5 +178,64 @@ describe('AppController', () => {
         const res = await controller.getJobResult('789', mockResponse);
         assert.strictEqual(res.status, 'FAILED');
         assert.strictEqual(statusCode, 422);
+    });
+
+    test('getFullTranscript returns transcript payload', async () => {
+        const mockResponse: any = { status: () => mockResponse };
+        const res = await controller.getFullTranscript('123', mockResponse);
+        assert.equal(res.lectureId, 'l-123');
+        assert.equal(res.transcript.text, 'text');
+    });
+
+    test('getTranscriptHighlights returns highlights list', async () => {
+        const mockResponse: any = { status: () => mockResponse };
+        const res = await controller.getTranscriptHighlights('123', mockResponse);
+        assert.equal(Array.isArray(res.highlights), true);
+        assert.equal(res.highlights?.[0]?.reason, 'important');
+    });
+
+    test('generateFlashcards enqueues generation request', async () => {
+        let statusCode: number | undefined;
+        let payload: any;
+        const mockResponse: any = {
+            status: (code: number) => {
+                statusCode = code;
+                return mockResponse;
+            }
+        };
+        mockQueueService.enqueueFlashcard = async (p: any) => {
+            payload = p;
+        };
+        const res = await controller.generateFlashcards('123', { count: 4 }, mockResponse);
+        assert.equal(statusCode, 202);
+        assert.equal(res.status, 'GENERATING_FLASHCARDS');
+        assert.equal(payload.maxCards, 4);
+    });
+
+    test('generateFlashcards rejects when transcript is missing', async () => {
+        mockJobStore.repo.getJob = async () => ({ jobId: '1', lectureId: 'l-1', status: 'QUEUED', transcriptText: null });
+        const mockResponse: any = { status: () => mockResponse };
+        try {
+            await controller.generateFlashcards('1', { count: 2 }, mockResponse);
+            assert.fail('should throw');
+        } catch (error) {
+            assert.ok(error instanceof ConflictException);
+        } finally {
+            mockJobStore.repo.getJob = async (id: string) => {
+                if (id === '123') return {
+                    jobId: '123',
+                    lectureId: 'l-123',
+                    status: 'COMPLETED',
+                    transcriptPath: '/path',
+                    transcriptText: 'text',
+                    transcriptJson: JSON.stringify({ text: 'text', segments: [{ start: 0, end: 1, text: 'text' }] }),
+                    flashcardsPath: null,
+                    flashcardsJson: null
+                };
+                if (id === '456') return { jobId: '456', status: 'QUEUED' };
+                if (id === '789') return { jobId: '789', status: 'FAILED', errorCode: 'X', errorMessage: 'boom' };
+                return null;
+            };
+        }
     });
 });

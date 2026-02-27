@@ -21,11 +21,10 @@ test('generateFlashcardDeck: primary path returns valid deck', async () => {
         generatedAt: new Date().toISOString(),
         cards: [
           {
-            question: 'Что даёт строгая схема?',
-            answer: 'Позволяет валидировать формат до сохранения.',
-            hints: ['валидация'],
-            tags: ['json'],
-            difficulty: 'medium'
+            sectionTitle: 'Строгая схема',
+            description: 'Проверяет структуру карточек до сохранения.',
+            keyInfo: 'Валидация гарантирует корректный JSON.',
+            imagePrompt: 'Схема валидации данных'
           }
         ]
       })
@@ -33,7 +32,7 @@ test('generateFlashcardDeck: primary path returns valid deck', async () => {
 
   assert.equal(result.report.path, 'primary');
   assert.equal(result.report.finalValid, true);
-  assert.equal(result.deck.cards.length, 1);
+  assert.equal(result.deck.cards.length, 5);
 });
 
 test('generateFlashcardDeck: retry path used when primary invalid', async () => {
@@ -48,11 +47,10 @@ test('generateFlashcardDeck: retry path used when primary invalid', async () => 
         generatedAt: new Date().toISOString(),
         cards: [
           {
-            question: 'Почему нужен retry?',
-            answer: 'Чтобы повторить генерацию с более строгим промптом.',
-            hints: [],
-            tags: ['retry'],
-            difficulty: 'medium'
+            sectionTitle: 'Повторная генерация',
+            description: 'Второй проход нужен, когда первый вывод невалиден.',
+            keyInfo: 'Retry повышает шанс получить корректную структуру.',
+            imagePrompt: 'Цикл повторной попытки'
           }
         ]
       });
@@ -71,14 +69,14 @@ test('generateFlashcardDeck: repair path normalizes alternative fields', async (
         schemaVersion: '1.0',
         lectureId: 'lec-unit',
         generatedAt: new Date().toISOString(),
-        cards: [{ front: 'Вопрос?', back: 'Ответ.' }]
+        cards: [{ title: 'Раздел', summary: 'Описание раздела', key_point: 'Ключевая мысль', image: 'Иллюстрация раздела' }]
       })}:end`;
     }
   });
 
   assert.equal(result.report.path, 'repair');
-  assert.equal(result.deck.cards[0].question, 'Вопрос?');
-  assert.equal(result.deck.cards[0].answer, 'Ответ.');
+  assert.equal(result.deck.cards[0].sectionTitle, 'Раздел');
+  assert.equal(result.deck.cards[0].keyInfo, 'Ключевая мысль');
 });
 
 test('generateFlashcardDeck: fallback path returns safe deck when all fails', async () => {

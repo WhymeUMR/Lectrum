@@ -6,6 +6,7 @@ const { mkdtemp, writeFile } = require('node:fs/promises');
 const {
   MockTranscriptionProvider,
   OpenAIWhisperTranscriptionProvider,
+  DeepgramTranscriptionProvider,
   TranscriptionProviderError
 } = require('../../services/transcription-worker/dist/transcription-provider.js');
 
@@ -101,6 +102,56 @@ test('OpenAI provider maps 429 to rate limit error code', async () => {
   } catch (error) {
     assert.ok(error instanceof TranscriptionProviderError);
     assert.equal(error.code, 'TRANSCRIPTION_PROVIDER_RATE_LIMIT');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('Deepgram provider maps response to transcript', async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        metadata: { duration: 1.2 },
+        results: {
+          channels: [
+            {
+              alternatives: [
+                {
+                  transcript: 'hello world',
+                  words: [
+                    { start: 0, end: 0.5, punctuated_word: 'hello' },
+                    { start: 0.5, end: 1.2, punctuated_word: 'world' }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    );
+
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'stt-deepgram-'));
+  await writeFile(path.join(dir, 'audio.mp3'), 'fake');
+
+  const provider = new DeepgramTranscriptionProvider({
+    apiKey: 'x',
+    baseUrl: 'https://api.deepgram.com/v1',
+    model: 'nova-3',
+    timeoutMs: 2000
+  });
+
+  try {
+    const result = await provider.transcribe({
+      artifactsDir: dir,
+      storagePath: 'audio.mp3',
+      requestedLanguage: 'en',
+      mimeType: 'audio/mpeg'
+    });
+    assert.equal(result.text, 'hello world');
+    assert.equal(result.language, 'en');
+    assert.equal(result.segments.length, 2);
   } finally {
     global.fetch = originalFetch;
   }

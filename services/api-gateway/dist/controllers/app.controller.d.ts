@@ -2,11 +2,13 @@ import { AppEnv } from '@lecture/config';
 import { Response } from 'express';
 import { QueueService } from '../services/queue.service';
 import { JobStoreService } from '../services/job-store.service';
+import { HighlightService } from '../services/highlight.service';
 export declare class AppController {
     private readonly env;
     private readonly queueService;
     private readonly store;
-    constructor(env: AppEnv, queueService: QueueService, store: JobStoreService);
+    private readonly highlightService;
+    constructor(env: AppEnv, queueService: QueueService, store: JobStoreService, highlightService: HighlightService);
     health(): {
         status: string;
         service: string;
@@ -64,18 +66,75 @@ export declare class AppController {
     } | {
         jobId: string;
         lectureId: string;
+        status: "COMPLETED";
         transcriptPath: string | null;
         transcriptText: string | null;
         transcript: any;
         flashcardsPath: string | null;
         flashcards: any;
-        status?: undefined;
         message?: undefined;
         errorCode?: undefined;
         errorMessage?: undefined;
         progress?: undefined;
         recommendedPollIntervalMs?: undefined;
         expectedMaxProcessingMs?: undefined;
+    }>;
+    getFullTranscript(jobId: string, response: Response): Promise<{
+        jobId: string;
+        status: "FAILED";
+        message: string;
+        errorCode: string | null;
+        errorMessage: string | null;
+        lectureId?: undefined;
+        transcript?: undefined;
+    } | {
+        jobId: string;
+        status: "QUEUED" | "INGESTING" | "INGESTED" | "TRANSCRIBING" | "GENERATING_FLASHCARDS" | "COMPLETED";
+        message: string;
+        errorCode?: undefined;
+        errorMessage?: undefined;
+        lectureId?: undefined;
+        transcript?: undefined;
+    } | {
+        jobId: string;
+        lectureId: string;
+        transcript: any;
+        status?: undefined;
+        message?: undefined;
+        errorCode?: undefined;
+        errorMessage?: undefined;
+    }>;
+    getTranscriptHighlights(jobId: string, response: Response): Promise<{
+        jobId: string;
+        status: "FAILED";
+        message: string;
+        errorCode: string | null;
+        errorMessage: string | null;
+        lectureId?: undefined;
+        highlights?: undefined;
+    } | {
+        jobId: string;
+        status: "QUEUED" | "INGESTING" | "INGESTED" | "TRANSCRIBING" | "GENERATING_FLASHCARDS" | "COMPLETED";
+        message: string;
+        errorCode?: undefined;
+        errorMessage?: undefined;
+        lectureId?: undefined;
+        highlights?: undefined;
+    } | {
+        jobId: string;
+        lectureId: string;
+        highlights: import("../services/highlight.service").TranscriptHighlight[];
+        status?: undefined;
+        message?: undefined;
+        errorCode?: undefined;
+        errorMessage?: undefined;
+    }>;
+    generateFlashcards(jobId: string, body: {
+        count: number;
+    }, response: Response): Promise<{
+        jobId: string;
+        status: string;
+        requestedCards: number;
     }>;
     private statusToProgress;
 }

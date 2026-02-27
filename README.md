@@ -144,6 +144,17 @@ OPENAI_API_KEY=<your_openrouter_key>
 Важно: транскрибация использует endpoint `/audio/transcriptions` и настраивается отдельно через
 `TRANSCRIPTION_*` переменные (или fallback на `OPENAI_*`).
 
+## Deepgram (транскрибация)
+
+Для `transcription-worker` можно включить Deepgram:
+
+```bash
+TRANSCRIPTION_PROVIDER=deepgram
+DEEPGRAM_API_KEY=<your_deepgram_key>
+DEEPGRAM_BASE_URL=https://api.deepgram.com/v1
+DEEPGRAM_MODEL=nova-3
+```
+
 GitHub Actions (`.github/workflows/test.yml`):
 
 - `npm ci`

@@ -2,14 +2,29 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.generateFlashcardDeck = generateFlashcardDeck;
 const contracts_1 = require("@lecture/contracts");
+function fitDeckCardCount(deck, requested, transcriptText) {
+    const target = Math.max(1, Math.min(10, requested));
+    const cards = [...deck.cards].slice(0, target);
+    while (cards.length < target) {
+        const idx = cards.length + 1;
+        cards.push({
+            sectionTitle: `Дополнительный раздел ${idx}`,
+            description: transcriptText.slice(0, 260),
+            keyInfo: transcriptText.slice(0, 180),
+            imagePrompt: `Иллюстрация к теме лекции, карточка ${idx}`
+        });
+    }
+    return { ...deck, cards };
+}
 function buildSystemPrompt(attempt) {
     const strictSuffix = attempt === 'retry'
         ? 'Исправь предыдущие ошибки: строго следуй схеме, без лишних полей.'
         : 'Следуй схеме и не добавляй лишних полей.';
     return [
-        'Ты генератор учебных флешкарт.',
+        'Ты генератор карточек по материалу лекции.',
         'Верни только JSON-объект без markdown.',
         'JSON должен соответствовать схеме: {schemaVersion, lectureId, generatedAt, cards[]}.',
+        'Каждая карточка: {sectionTitle, description, keyInfo, imagePrompt}.',
         strictSuffix
     ].join(' ');
 }
@@ -22,18 +37,23 @@ function buildUserPrompt(payload) {
     ].join('\n');
 }
 function buildFallbackDeck(payload) {
+    const ensureMin = (text, min) => {
+        const safe = text.trim();
+        if (safe.length >= min)
+            return safe;
+        return `${safe} ${safe}`.trim().slice(0, Math.max(min, safe.length));
+    };
     const pieces = payload.transcriptText
         .split(/[\n.!?]+/g)
         .map((part) => part.trim())
         .filter((part) => part.length >= 20);
     const cards = (pieces.length > 0 ? pieces : [payload.transcriptText])
         .slice(0, payload.maxCards)
-        .map((piece) => ({
-        question: `Что важно понять из фрагмента: "${piece.slice(0, 80)}"?`,
-        answer: piece,
-        hints: piece.split(/\s+/).slice(0, 2),
-        tags: ['lecture'],
-        difficulty: 'medium'
+        .map((piece, index) => ({
+        sectionTitle: `Раздел ${index + 1}`,
+        description: ensureMin(piece.slice(0, 260), 10),
+        keyInfo: ensureMin(piece.slice(0, 180), 10),
+        imagePrompt: ensureMin(`Иллюстрация к теме: ${piece.slice(0, 80)}`, 3)
     }));
     return contracts_1.FlashcardDeckSchema.parse({
         schemaVersion: '1.0',
@@ -44,11 +64,10 @@ function buildFallbackDeck(payload) {
 }
 function normalizeCard(candidate) {
     return {
-        question: candidate.question ?? candidate.front ?? candidate.q,
-        answer: candidate.answer ?? candidate.back ?? candidate.a,
-        hints: Array.isArray(candidate.hints) ? candidate.hints : [],
-        tags: Array.isArray(candidate.tags) ? candidate.tags : ['lecture'],
-        difficulty: candidate.difficulty ?? 'medium'
+        sectionTitle: candidate.sectionTitle ?? candidate.title ?? candidate.topic,
+        description: candidate.description ?? candidate.summary ?? candidate.details,
+        keyInfo: candidate.keyInfo ?? candidate.keyInformation ?? candidate.key_point,
+        imagePrompt: candidate.imagePrompt ?? candidate.imageDescription ?? candidate.image
     };
 }
 function normalizeDeckShape(candidate, lectureId) {
@@ -149,7 +168,7 @@ async function generateFlashcardDeck(payload, options = {}) {
     try {
         const deck = parseDeckStrict(primaryRaw);
         return {
-            deck,
+            deck: fitDeckCardCount(deck, payload.maxCards, payload.transcriptText),
             report: { path: 'primary', primaryValid: true, finalValid: true, attempts: 1 }
         };
     }
@@ -158,7 +177,7 @@ async function generateFlashcardDeck(payload, options = {}) {
         try {
             const deck = parseDeckStrict(retryRaw);
             return {
-                deck,
+                deck: fitDeckCardCount(deck, payload.maxCards, payload.transcriptText),
                 report: { path: 'retry', primaryValid: false, finalValid: true, attempts: 2 }
             };
         }
@@ -168,14 +187,14 @@ async function generateFlashcardDeck(payload, options = {}) {
                 const normalized = normalizeDeckShape(JSON.parse(repaired), payload.lectureId);
                 const deck = contracts_1.FlashcardDeckSchema.parse(normalized);
                 return {
-                    deck,
+                    deck: fitDeckCardCount(deck, payload.maxCards, payload.transcriptText),
                     report: { path: 'repair', primaryValid: false, finalValid: true, attempts: 2 }
                 };
             }
             catch {
                 const deck = buildFallbackDeck(payload);
                 return {
-                    deck,
+                    deck: fitDeckCardCount(deck, payload.maxCards, payload.transcriptText),
                     report: { path: 'fallback', primaryValid: false, finalValid: true, attempts: 2 }
                 };
             }

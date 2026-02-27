@@ -56,16 +56,15 @@ export const FlashcardGenerationJobSchema = z.object({
   jobId: z.string().min(1),
   lectureId: z.string().min(1),
   transcriptText: z.string().min(1),
-  maxCards: z.number().int().positive().max(100).default(20)
+  maxCards: z.number().int().positive().max(10).default(5)
 });
 
 export const FlashcardSchema = z
   .object({
-    question: z.string().min(5),
-    answer: z.string().min(1),
-    hints: z.array(z.string().min(1)).max(3).default([]),
-    tags: z.array(z.string().min(1)).max(5).default([]),
-    difficulty: z.enum(['easy', 'medium', 'hard']).default('medium')
+    sectionTitle: z.string().min(3),
+    description: z.string().min(10),
+    keyInfo: z.string().min(10),
+    imagePrompt: z.string().min(3)
   })
   .strict();
 
@@ -74,7 +73,7 @@ export const FlashcardDeckSchema = z
     schemaVersion: z.literal('1.0'),
     lectureId: z.string().min(1),
     generatedAt: z.string().datetime(),
-    cards: z.array(FlashcardSchema).min(1).max(100)
+    cards: z.array(FlashcardSchema).min(1).max(10)
   })
   .strict();
 

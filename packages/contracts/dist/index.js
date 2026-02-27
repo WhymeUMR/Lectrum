@@ -52,15 +52,14 @@ exports.FlashcardGenerationJobSchema = zod_1.z.object({
     jobId: zod_1.z.string().min(1),
     lectureId: zod_1.z.string().min(1),
     transcriptText: zod_1.z.string().min(1),
-    maxCards: zod_1.z.number().int().positive().max(100).default(20)
+    maxCards: zod_1.z.number().int().positive().max(10).default(5)
 });
 exports.FlashcardSchema = zod_1.z
     .object({
-    question: zod_1.z.string().min(5),
-    answer: zod_1.z.string().min(1),
-    hints: zod_1.z.array(zod_1.z.string().min(1)).max(3).default([]),
-    tags: zod_1.z.array(zod_1.z.string().min(1)).max(5).default([]),
-    difficulty: zod_1.z.enum(['easy', 'medium', 'hard']).default('medium')
+    sectionTitle: zod_1.z.string().min(3),
+    description: zod_1.z.string().min(10),
+    keyInfo: zod_1.z.string().min(10),
+    imagePrompt: zod_1.z.string().min(3)
 })
     .strict();
 exports.FlashcardDeckSchema = zod_1.z
@@ -68,7 +67,7 @@ exports.FlashcardDeckSchema = zod_1.z
     schemaVersion: zod_1.z.literal('1.0'),
     lectureId: zod_1.z.string().min(1),
     generatedAt: zod_1.z.string().datetime(),
-    cards: zod_1.z.array(exports.FlashcardSchema).min(1).max(100)
+    cards: zod_1.z.array(exports.FlashcardSchema).min(1).max(10)
 })
     .strict();
 //# sourceMappingURL=index.js.map
