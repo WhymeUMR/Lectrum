@@ -98,7 +98,9 @@ let AppController = class AppController {
             jobId: job.jobId,
             lectureId: job.lectureId,
             transcriptPath: job.transcriptPath,
-            transcriptText: job.transcriptText
+            transcriptText: job.transcriptText,
+            flashcardsPath: job.flashcardsPath,
+            flashcards: job.flashcardsJson ? JSON.parse(job.flashcardsJson) : null
         };
     }
 };

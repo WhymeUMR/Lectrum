@@ -11,21 +11,52 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 require("reflect-metadata");
+const node_path_1 = __importDefault(require("node:path"));
 const common_1 = require("@nestjs/common");
 const core_1 = require("@nestjs/core");
 const bullmq_1 = require("bullmq");
 const contracts_1 = require("@lecture/contracts");
 const config_1 = require("@lecture/config");
+const pipeline_1 = require("@lecture/pipeline");
+const flashcard_generation_1 = require("./flashcard-generation");
 let FlashcardProcessor = class FlashcardProcessor {
     constructor(env) {
         this.env = env;
+        if (!env.DATABASE_URL) {
+            throw new Error('DATABASE_URL is required for flashcard-worker');
+        }
+        this.repo = pipeline_1.PipelineRepository.fromDatabaseUrl(env.DATABASE_URL);
     }
-    onModuleInit() {
+    async onModuleInit() {
+        await this.repo.ensureSchema();
         const redis = (0, config_1.buildRedisConnection)(this.env);
         this.worker = new bullmq_1.Worker(contracts_1.QUEUE_NAMES.flashcard, async (job) => {
-            console.log(`Generated ${job.data.maxCards} cards for lecture ${job.data.lectureId}`);
+            const payload = job.data;
+            try {
+                await this.repo.updateStatus(payload.jobId, 'GENERATING_FLASHCARDS');
+                const result = await (0, flashcard_generation_1.generateFlashcardDeck)(payload, {
+                    apiKey: this.env.OPENAI_API_KEY,
+                    model: this.env.OPENAI_MODEL,
+                    baseUrl: this.env.OPENAI_BASE_URL
+                });
+                const deck = result.deck;
+                const flashcardsJson = JSON.stringify(deck, null, 2);
+                const flashcardsPath = node_path_1.default.join('flashcards', `${payload.lectureId}.json`);
+                await (0, pipeline_1.writeArtifact)(this.env.ARTIFACTS_DIR, flashcardsPath, flashcardsJson);
+                await this.repo.saveFlashcards(payload.jobId, flashcardsPath, flashcardsJson);
+                console.log(`flashcard generation done lecture=${payload.lectureId} path=${result.report.path} attempts=${result.report.attempts}`);
+                await this.repo.updateStatus(payload.jobId, 'COMPLETED');
+            }
+            catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                await this.repo.setError(payload.jobId, 'FLASHCARD_GENERATION_ERROR', message);
+                throw error;
+            }
         }, {
             ...redis,
             removeOnComplete: contracts_1.QUEUE_POLICIES.flashcard.removeOnComplete,
@@ -34,6 +65,7 @@ let FlashcardProcessor = class FlashcardProcessor {
     }
     async onModuleDestroy() {
         await this.worker?.close();
+        await this.repo.close();
     }
 };
 FlashcardProcessor = __decorate([

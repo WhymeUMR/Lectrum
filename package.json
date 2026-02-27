@@ -9,6 +9,7 @@
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
+    "verify:step6": "npm run build && node scripts/verify-step6.mjs",
     "test:gateway": "tsx --tsconfig services/api-gateway/tsconfig.json --test services/api-gateway/src/**/*.spec.ts",
     "format": "prettier --write \"**/*.{ts,cjs,js}\"",
     "lint": "eslint \"**/*.{ts,cjs,js}\""

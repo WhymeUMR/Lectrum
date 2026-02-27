@@ -1,21 +1,53 @@
 import 'reflect-metadata';
+import path from 'node:path';
 import { Controller, Get, Inject, Module, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Job, Worker } from 'bullmq';
 import { FlashcardGenerationJobPayload, QUEUE_NAMES, QUEUE_POLICIES } from '@lecture/contracts';
 import { APP_ENV, AppEnv, SharedConfigModule, buildRedisConnection } from '@lecture/config';
+import { PipelineRepository, writeArtifact } from '@lecture/pipeline';
+import { generateFlashcardDeck } from './flashcard-generation';
 
 class FlashcardProcessor implements OnModuleInit, OnModuleDestroy {
   private worker?: Worker;
+  private repo: PipelineRepository;
 
-  constructor(@Inject(APP_ENV) private readonly env: AppEnv) {}
+  constructor(@Inject(APP_ENV) private readonly env: AppEnv) {
+    if (!env.DATABASE_URL) {
+      throw new Error('DATABASE_URL is required for flashcard-worker');
+    }
+    this.repo = PipelineRepository.fromDatabaseUrl(env.DATABASE_URL);
+  }
 
-  onModuleInit() {
+  async onModuleInit() {
+    await this.repo.ensureSchema();
     const redis = buildRedisConnection(this.env);
     this.worker = new Worker(
       QUEUE_NAMES.flashcard,
       async (job: Job<FlashcardGenerationJobPayload>) => {
-        console.log(`Generated ${job.data.maxCards} cards for lecture ${job.data.lectureId}`);
+        const payload = job.data;
+        try {
+          await this.repo.updateStatus(payload.jobId, 'GENERATING_FLASHCARDS');
+          const result = await generateFlashcardDeck(payload, {
+            apiKey: this.env.OPENAI_API_KEY,
+            model: this.env.OPENAI_MODEL,
+            baseUrl: this.env.OPENAI_BASE_URL
+          });
+          const deck = result.deck;
+          const flashcardsJson = JSON.stringify(deck, null, 2);
+          const flashcardsPath = path.join('flashcards', `${payload.lectureId}.json`);
+
+          await writeArtifact(this.env.ARTIFACTS_DIR, flashcardsPath, flashcardsJson);
+          await this.repo.saveFlashcards(payload.jobId, flashcardsPath, flashcardsJson);
+          console.log(
+            `flashcard generation done lecture=${payload.lectureId} path=${result.report.path} attempts=${result.report.attempts}`
+          );
+          await this.repo.updateStatus(payload.jobId, 'COMPLETED');
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          await this.repo.setError(payload.jobId, 'FLASHCARD_GENERATION_ERROR', message);
+          throw error;
+        }
       },
       {
         ...redis,
@@ -27,6 +59,7 @@ class FlashcardProcessor implements OnModuleInit, OnModuleDestroy {
 
   async onModuleDestroy() {
     await this.worker?.close();
+    await this.repo.close();
   }
 }
 

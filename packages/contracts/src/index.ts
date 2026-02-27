@@ -53,11 +53,33 @@ export const TranscriptionJobSchema = z.object({
 });
 
 export const FlashcardGenerationJobSchema = z.object({
+  jobId: z.string().min(1),
   lectureId: z.string().min(1),
   transcriptText: z.string().min(1),
   maxCards: z.number().int().positive().max(100).default(20)
 });
 
+export const FlashcardSchema = z
+  .object({
+    question: z.string().min(5),
+    answer: z.string().min(1),
+    hints: z.array(z.string().min(1)).max(3).default([]),
+    tags: z.array(z.string().min(1)).max(5).default([]),
+    difficulty: z.enum(['easy', 'medium', 'hard']).default('medium')
+  })
+  .strict();
+
+export const FlashcardDeckSchema = z
+  .object({
+    schemaVersion: z.literal('1.0'),
+    lectureId: z.string().min(1),
+    generatedAt: z.string().datetime(),
+    cards: z.array(FlashcardSchema).min(1).max(100)
+  })
+  .strict();
+
 export type IngestionJobPayload = z.infer<typeof IngestionJobSchema>;
 export type TranscriptionJobPayload = z.infer<typeof TranscriptionJobSchema>;
 export type FlashcardGenerationJobPayload = z.infer<typeof FlashcardGenerationJobSchema>;
+export type Flashcard = z.infer<typeof FlashcardSchema>;
+export type FlashcardDeck = z.infer<typeof FlashcardDeckSchema>;

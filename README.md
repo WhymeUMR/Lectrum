@@ -14,12 +14,28 @@
 ## Что реализовано на шаге 5
 
 - API endpoint для старта обработки лекции: `POST /api/v1/lectures/ingest`
-- Хранение статусов задачи в Postgres (`QUEUED -> INGESTING -> INGESTED -> TRANSCRIBING -> COMPLETED/FAILED`)
+- Хранение статусов задачи в Postgres (`QUEUED -> INGESTING -> INGESTED -> TRANSCRIBING -> GENERATING_FLASHCARDS -> COMPLETED/FAILED`)
 - Постановка задач транскрибации в BullMQ
 - Сохранение исходного артефакта и транскрипта в `ARTIFACTS_DIR`
 - API статуса и результата:
   - `GET /api/v1/jobs/:jobId`
   - `GET /api/v1/jobs/:jobId/result`
+
+## Что реализовано на шаге 6
+
+- `flashcard-worker` как отдельный микросервис генерации карточек
+- Строгая JSON-схема колоды/карточек (`FlashcardDeckSchema`) в `@lecture/contracts`
+- Детерминированный путь `primary -> retry -> repair -> fallback` для невалидного вывода
+- Сохранение результата карточек в артефакт и в Postgres (`flashcards_path`, `flashcards_json`)
+- Обновлённый `GET /api/v1/jobs/:jobId/result` возвращает `flashcards`
+- Верификация критерия 95% на выборке: `npm run verify:step6`
+- Рубрика качества карточек: `docs/step-06-quality-rubric.md`
+
+## Что реализовано на шаге 7
+
+- Карта системных зависимостей MVP: `docs/step-07-system-dependency-map.md`
+- Явно зафиксированы блокеры, критический путь и владельцы связей зависимостей
+- Добавлены проверяемые контрольные точки по вехам пайплайна
 
 ## Общие пакеты
 
@@ -80,4 +96,3 @@ GitHub Actions (`.github/workflows/test.yml`):
 - `npm run build`
 - `docker compose config`
 - `./scripts/check-config.sh local|staging|production`
-

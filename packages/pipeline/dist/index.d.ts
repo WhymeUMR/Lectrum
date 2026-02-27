@@ -1,5 +1,5 @@
 import { Pool } from 'pg';
-export type JobStatus = 'QUEUED' | 'INGESTING' | 'INGESTED' | 'TRANSCRIBING' | 'COMPLETED' | 'FAILED';
+export type JobStatus = 'QUEUED' | 'INGESTING' | 'INGESTED' | 'TRANSCRIBING' | 'GENERATING_FLASHCARDS' | 'COMPLETED' | 'FAILED';
 export type SourceType = 'upload' | 'url';
 export interface CreateJobInput {
     jobId: string;
@@ -21,6 +21,8 @@ export interface JobRecord {
     storagePath: string | null;
     transcriptPath: string | null;
     transcriptText: string | null;
+    flashcardsPath: string | null;
+    flashcardsJson: string | null;
     errorCode: string | null;
     errorMessage: string | null;
     requestedLanguage: string;
@@ -38,6 +40,7 @@ export declare class PipelineRepository {
     setSourceStoragePath(jobId: string, storagePath: string): Promise<void>;
     saveTranscript(jobId: string, transcriptPath: string, transcriptText: string): Promise<void>;
     setError(jobId: string, code: string, message: string): Promise<void>;
+    saveFlashcards(jobId: string, flashcardsPath: string, flashcardsJson: string): Promise<void>;
     getJob(jobId: string): Promise<JobRecord | null>;
 }
 export declare function writeArtifact(artifactsRoot: string, relativePath: string, content: Buffer | string): Promise<string>;

@@ -7,6 +7,7 @@ export type JobStatus =
   | 'INGESTING'
   | 'INGESTED'
   | 'TRANSCRIBING'
+  | 'GENERATING_FLASHCARDS'
   | 'COMPLETED'
   | 'FAILED';
 
@@ -33,6 +34,8 @@ export interface JobRecord {
   storagePath: string | null;
   transcriptPath: string | null;
   transcriptText: string | null;
+  flashcardsPath: string | null;
+  flashcardsJson: string | null;
   errorCode: string | null;
   errorMessage: string | null;
   requestedLanguage: string;
@@ -56,6 +59,8 @@ async function ensurePipelineSchema(pool: Pool): Promise<void> {
         storage_path TEXT,
         transcript_path TEXT,
         transcript_text TEXT,
+        flashcards_path TEXT,
+        flashcards_json TEXT,
         error_code TEXT,
         error_message TEXT,
         requested_language TEXT NOT NULL,
@@ -65,6 +70,13 @@ async function ensurePipelineSchema(pool: Pool): Promise<void> {
 
       CREATE INDEX IF NOT EXISTS idx_lecture_jobs_lecture_id ON lecture_jobs(lecture_id);
       CREATE INDEX IF NOT EXISTS idx_lecture_jobs_status ON lecture_jobs(status);
+    `);
+    await pool.query(`
+      ALTER TABLE lecture_jobs
+      ADD COLUMN IF NOT EXISTS flashcards_path TEXT;
+
+      ALTER TABLE lecture_jobs
+      ADD COLUMN IF NOT EXISTS flashcards_json TEXT;
     `);
   } finally {
     await pool.query(`SELECT pg_advisory_unlock(918273645)`);
@@ -147,6 +159,19 @@ export class PipelineRepository {
     );
   }
 
+  async saveFlashcards(jobId: string, flashcardsPath: string, flashcardsJson: string): Promise<void> {
+    await this.pool.query(
+      `
+      UPDATE lecture_jobs
+      SET flashcards_path = $2,
+          flashcards_json = $3,
+          updated_at = NOW()
+      WHERE job_id = $1
+      `,
+      [jobId, flashcardsPath, flashcardsJson]
+    );
+  }
+
   async getJob(jobId: string): Promise<JobRecord | null> {
     const result = await this.pool.query(
       `
@@ -161,6 +186,8 @@ export class PipelineRepository {
         storage_path AS "storagePath",
         transcript_path AS "transcriptPath",
         transcript_text AS "transcriptText",
+        flashcards_path AS "flashcardsPath",
+        flashcards_json AS "flashcardsJson",
         error_code AS "errorCode",
         error_message AS "errorMessage",
         requested_language AS "requestedLanguage",

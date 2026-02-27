@@ -13,6 +13,9 @@ declare const EnvSchema: z.ZodObject<{
     REDIS_ENABLE_TLS: z.ZodDefault<z.ZodEffects<z.ZodBoolean, boolean, unknown>>;
     DATABASE_URL: z.ZodOptional<z.ZodString>;
     ARTIFACTS_DIR: z.ZodDefault<z.ZodString>;
+    OPENAI_API_KEY: z.ZodOptional<z.ZodString>;
+    OPENAI_MODEL: z.ZodOptional<z.ZodString>;
+    OPENAI_BASE_URL: z.ZodOptional<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
     APP_ENV: "local" | "staging" | "production";
     NODE_ENV: "production" | "development" | "test";
@@ -26,6 +29,9 @@ declare const EnvSchema: z.ZodObject<{
     REDIS_ENABLE_TLS: boolean;
     ARTIFACTS_DIR: string;
     DATABASE_URL?: string | undefined;
+    OPENAI_API_KEY?: string | undefined;
+    OPENAI_MODEL?: string | undefined;
+    OPENAI_BASE_URL?: string | undefined;
 }, {
     SERVICE_NAME: string;
     REDIS_URL: string;
@@ -39,6 +45,9 @@ declare const EnvSchema: z.ZodObject<{
     REDIS_ENABLE_TLS?: unknown;
     DATABASE_URL?: string | undefined;
     ARTIFACTS_DIR?: string | undefined;
+    OPENAI_API_KEY?: string | undefined;
+    OPENAI_MODEL?: string | undefined;
+    OPENAI_BASE_URL?: string | undefined;
 }>;
 export type AppEnv = z.infer<typeof EnvSchema>;
 export declare const APP_ENV: unique symbol;

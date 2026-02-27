@@ -49,9 +49,10 @@ class TranscriptionProcessor implements OnModuleInit, OnModuleDestroy {
           await writeArtifact(this.env.ARTIFACTS_DIR, transcriptRelativePath, transcriptText);
 
           await this.repo.saveTranscript(payload.jobId, transcriptRelativePath, transcriptText);
-          await this.repo.updateStatus(payload.jobId, 'COMPLETED');
+          await this.repo.updateStatus(payload.jobId, 'GENERATING_FLASHCARDS');
 
           await this.flashcardQueue?.add('generate', {
+            jobId: payload.jobId,
             lectureId: payload.lectureId,
             transcriptText,
             maxCards: 20

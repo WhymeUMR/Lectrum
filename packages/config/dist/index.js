@@ -23,7 +23,10 @@ const EnvSchema = zod_1.z.object({
     REDIS_MAX_RETRIES_PER_REQUEST: zod_1.z.coerce.number().int().min(1).max(20).default(3),
     REDIS_ENABLE_TLS: zod_1.z.preprocess((v) => v === 'true' || v === true, zod_1.z.boolean()).default(false),
     DATABASE_URL: zod_1.z.string().min(1).optional(),
-    ARTIFACTS_DIR: zod_1.z.string().min(1).default('/app/storage')
+    ARTIFACTS_DIR: zod_1.z.string().min(1).default('/app/storage'),
+    OPENAI_API_KEY: zod_1.z.string().min(1).optional(),
+    OPENAI_MODEL: zod_1.z.string().min(1).optional(),
+    OPENAI_BASE_URL: zod_1.z.string().url().optional()
 });
 exports.APP_ENV = Symbol('APP_ENV');
 function loadEnv(serviceName) {
@@ -39,7 +42,10 @@ function loadEnv(serviceName) {
         REDIS_MAX_RETRIES_PER_REQUEST: process.env.REDIS_MAX_RETRIES_PER_REQUEST,
         REDIS_ENABLE_TLS: process.env.REDIS_ENABLE_TLS,
         DATABASE_URL: process.env.DATABASE_URL,
-        ARTIFACTS_DIR: process.env.ARTIFACTS_DIR
+        ARTIFACTS_DIR: process.env.ARTIFACTS_DIR,
+        OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+        OPENAI_MODEL: process.env.OPENAI_MODEL,
+        OPENAI_BASE_URL: process.env.OPENAI_BASE_URL
     });
 }
 function buildRedisConnection(env) {

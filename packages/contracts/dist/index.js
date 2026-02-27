@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.FlashcardGenerationJobSchema = exports.TranscriptionJobSchema = exports.IngestionJobSchema = exports.QUEUE_POLICIES = exports.QUEUE_NAMES = exports.JOB_CONTRACT_VERSION = void 0;
+exports.FlashcardDeckSchema = exports.FlashcardSchema = exports.FlashcardGenerationJobSchema = exports.TranscriptionJobSchema = exports.IngestionJobSchema = exports.QUEUE_POLICIES = exports.QUEUE_NAMES = exports.JOB_CONTRACT_VERSION = void 0;
 const zod_1 = require("zod");
 exports.JOB_CONTRACT_VERSION = 'v1';
 exports.QUEUE_NAMES = {
@@ -49,8 +49,26 @@ exports.TranscriptionJobSchema = zod_1.z.object({
     language: zod_1.z.string().default('ru')
 });
 exports.FlashcardGenerationJobSchema = zod_1.z.object({
+    jobId: zod_1.z.string().min(1),
     lectureId: zod_1.z.string().min(1),
     transcriptText: zod_1.z.string().min(1),
     maxCards: zod_1.z.number().int().positive().max(100).default(20)
 });
+exports.FlashcardSchema = zod_1.z
+    .object({
+    question: zod_1.z.string().min(5),
+    answer: zod_1.z.string().min(1),
+    hints: zod_1.z.array(zod_1.z.string().min(1)).max(3).default([]),
+    tags: zod_1.z.array(zod_1.z.string().min(1)).max(5).default([]),
+    difficulty: zod_1.z.enum(['easy', 'medium', 'hard']).default('medium')
+})
+    .strict();
+exports.FlashcardDeckSchema = zod_1.z
+    .object({
+    schemaVersion: zod_1.z.literal('1.0'),
+    lectureId: zod_1.z.string().min(1),
+    generatedAt: zod_1.z.string().datetime(),
+    cards: zod_1.z.array(exports.FlashcardSchema).min(1).max(100)
+})
+    .strict();
 //# sourceMappingURL=index.js.map

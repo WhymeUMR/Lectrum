@@ -13,7 +13,10 @@ const EnvSchema = z.object({
   REDIS_MAX_RETRIES_PER_REQUEST: z.coerce.number().int().min(1).max(20).default(3),
   REDIS_ENABLE_TLS: z.preprocess((v) => v === 'true' || v === true, z.boolean()).default(false),
   DATABASE_URL: z.string().min(1).optional(),
-  ARTIFACTS_DIR: z.string().min(1).default('/app/storage')
+  ARTIFACTS_DIR: z.string().min(1).default('/app/storage'),
+  OPENAI_API_KEY: z.string().min(1).optional(),
+  OPENAI_MODEL: z.string().min(1).optional(),
+  OPENAI_BASE_URL: z.string().url().optional()
 });
 
 export type AppEnv = z.infer<typeof EnvSchema>;
@@ -32,7 +35,10 @@ function loadEnv(serviceName: string): AppEnv {
     REDIS_MAX_RETRIES_PER_REQUEST: process.env.REDIS_MAX_RETRIES_PER_REQUEST,
     REDIS_ENABLE_TLS: process.env.REDIS_ENABLE_TLS,
     DATABASE_URL: process.env.DATABASE_URL,
-    ARTIFACTS_DIR: process.env.ARTIFACTS_DIR
+    ARTIFACTS_DIR: process.env.ARTIFACTS_DIR,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    OPENAI_MODEL: process.env.OPENAI_MODEL,
+    OPENAI_BASE_URL: process.env.OPENAI_BASE_URL
   });
 }
 

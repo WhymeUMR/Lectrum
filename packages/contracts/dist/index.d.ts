@@ -106,18 +106,88 @@ export declare const TranscriptionJobSchema: z.ZodObject<{
     language?: string | undefined;
 }>;
 export declare const FlashcardGenerationJobSchema: z.ZodObject<{
+    jobId: z.ZodString;
     lectureId: z.ZodString;
     transcriptText: z.ZodString;
     maxCards: z.ZodDefault<z.ZodNumber>;
 }, "strip", z.ZodTypeAny, {
+    jobId: string;
     lectureId: string;
     transcriptText: string;
     maxCards: number;
 }, {
+    jobId: string;
     lectureId: string;
     transcriptText: string;
     maxCards?: number | undefined;
 }>;
+export declare const FlashcardSchema: z.ZodObject<{
+    question: z.ZodString;
+    answer: z.ZodString;
+    hints: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
+    tags: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
+    difficulty: z.ZodDefault<z.ZodEnum<["easy", "medium", "hard"]>>;
+}, "strict", z.ZodTypeAny, {
+    question: string;
+    answer: string;
+    hints: string[];
+    tags: string[];
+    difficulty: "easy" | "medium" | "hard";
+}, {
+    question: string;
+    answer: string;
+    hints?: string[] | undefined;
+    tags?: string[] | undefined;
+    difficulty?: "easy" | "medium" | "hard" | undefined;
+}>;
+export declare const FlashcardDeckSchema: z.ZodObject<{
+    schemaVersion: z.ZodLiteral<"1.0">;
+    lectureId: z.ZodString;
+    generatedAt: z.ZodString;
+    cards: z.ZodArray<z.ZodObject<{
+        question: z.ZodString;
+        answer: z.ZodString;
+        hints: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
+        tags: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
+        difficulty: z.ZodDefault<z.ZodEnum<["easy", "medium", "hard"]>>;
+    }, "strict", z.ZodTypeAny, {
+        question: string;
+        answer: string;
+        hints: string[];
+        tags: string[];
+        difficulty: "easy" | "medium" | "hard";
+    }, {
+        question: string;
+        answer: string;
+        hints?: string[] | undefined;
+        tags?: string[] | undefined;
+        difficulty?: "easy" | "medium" | "hard" | undefined;
+    }>, "many">;
+}, "strict", z.ZodTypeAny, {
+    lectureId: string;
+    schemaVersion: "1.0";
+    generatedAt: string;
+    cards: {
+        question: string;
+        answer: string;
+        hints: string[];
+        tags: string[];
+        difficulty: "easy" | "medium" | "hard";
+    }[];
+}, {
+    lectureId: string;
+    schemaVersion: "1.0";
+    generatedAt: string;
+    cards: {
+        question: string;
+        answer: string;
+        hints?: string[] | undefined;
+        tags?: string[] | undefined;
+        difficulty?: "easy" | "medium" | "hard" | undefined;
+    }[];
+}>;
 export type IngestionJobPayload = z.infer<typeof IngestionJobSchema>;
 export type TranscriptionJobPayload = z.infer<typeof TranscriptionJobSchema>;
 export type FlashcardGenerationJobPayload = z.infer<typeof FlashcardGenerationJobSchema>;
+export type Flashcard = z.infer<typeof FlashcardSchema>;
+export type FlashcardDeck = z.infer<typeof FlashcardDeckSchema>;

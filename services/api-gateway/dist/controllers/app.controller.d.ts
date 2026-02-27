@@ -30,16 +30,20 @@ export declare class AppController {
     getJob(jobId: string): Promise<import("@lecture/pipeline").JobRecord>;
     getJobResult(jobId: string): Promise<{
         jobId: string;
-        status: "QUEUED" | "INGESTING" | "INGESTED" | "TRANSCRIBING" | "FAILED";
+        status: "QUEUED" | "INGESTING" | "INGESTED" | "TRANSCRIBING" | "GENERATING_FLASHCARDS" | "FAILED";
         message: string;
         lectureId?: undefined;
         transcriptPath?: undefined;
         transcriptText?: undefined;
+        flashcardsPath?: undefined;
+        flashcards?: undefined;
     } | {
         jobId: string;
         lectureId: string;
         transcriptPath: string | null;
         transcriptText: string | null;
+        flashcardsPath: string | null;
+        flashcards: any;
         status?: undefined;
         message?: undefined;
     }>;
