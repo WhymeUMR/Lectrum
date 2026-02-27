@@ -12,7 +12,9 @@ describe('AppController', () => {
     mockEnv = {
         SERVICE_NAME: 'api-gateway',
         APP_ENV: 'test',
-        REDIS_QUEUE_PREFIX: 'testq'
+        REDIS_QUEUE_PREFIX: 'testq',
+        JOB_RESULT_POLL_INTERVAL_MS: 2000,
+        JOB_EXPECTED_MAX_PROCESSING_MS: 900000
     };
 
     mockQueueService = {
@@ -125,6 +127,9 @@ describe('AppController', () => {
         const res = await controller.getJobResult('456', mockResponse);
         assert.strictEqual(res.status, 'QUEUED');
         assert.strictEqual(statusCode, 202);
+        assert.strictEqual(res.progress, 5);
+        assert.strictEqual(res.recommendedPollIntervalMs, 2000);
+        assert.strictEqual(res.expectedMaxProcessingMs, 900000);
     });
 
     test('getJobResult returns failure payload for FAILED job', async () => {

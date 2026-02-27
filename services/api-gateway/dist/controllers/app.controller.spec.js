@@ -15,7 +15,9 @@ const common_1 = require("@nestjs/common");
     mockEnv = {
         SERVICE_NAME: 'api-gateway',
         APP_ENV: 'test',
-        REDIS_QUEUE_PREFIX: 'testq'
+        REDIS_QUEUE_PREFIX: 'testq',
+        JOB_RESULT_POLL_INTERVAL_MS: 2000,
+        JOB_EXPECTED_MAX_PROCESSING_MS: 900000
     };
     mockQueueService = {
         enqueueIngestion: async () => { }
@@ -29,6 +31,8 @@ const common_1 = require("@nestjs/common");
                     return { jobId: '123', status: 'COMPLETED', transcriptPath: '/path', transcriptText: 'text' };
                 if (id === '456')
                     return { jobId: '456', status: 'QUEUED' };
+                if (id === '789')
+                    return { jobId: '789', status: 'FAILED', errorCode: 'X', errorMessage: 'boom' };
                 return null;
             }
         }
@@ -67,6 +71,23 @@ const common_1 = require("@nestjs/common");
         strict_1.default.ok(res.jobId);
         strict_1.default.strictEqual(res.status, 'QUEUED');
     });
+    (0, node_test_1.test)('createIngestionJob marks job failed when enqueue errors', async () => {
+        let setErrorCalled = false;
+        mockQueueService.enqueueIngestion = async () => { throw new Error('redis down'); };
+        mockJobStore.repo.setError = async () => { setErrorCalled = true; };
+        try {
+            await controller.createIngestionJob({ sourceType: 'url', sourceUrl: 'http://test.com', requestedLanguage: 'ru', filename: '1.mp3', mimeType: 'audio/mpeg' });
+            strict_1.default.fail('Should fail on enqueue error');
+        }
+        catch (e) {
+            strict_1.default.ok(e instanceof common_1.ServiceUnavailableException);
+            strict_1.default.strictEqual(setErrorCalled, true);
+        }
+        finally {
+            mockQueueService.enqueueIngestion = async () => { };
+            mockJobStore.repo.setError = async () => { };
+        }
+    });
     (0, node_test_1.test)('createIngestionJob blocks when active job exists', async () => {
         mockJobStore.repo.getActiveJob = async () => ({ jobId: 'busy', status: 'INGESTING', lectureId: 'l1' });
         try {
@@ -81,12 +102,14 @@ const common_1 = require("@nestjs/common");
         }
     });
     (0, node_test_1.test)('getJobResult returns transcript on COMPLETED', async () => {
-        const res = await controller.getJobResult('123');
+        const mockResponse = { status: () => mockResponse };
+        const res = await controller.getJobResult('123', mockResponse);
         strict_1.default.strictEqual(res.transcriptText, 'text');
     });
     (0, node_test_1.test)('getJobResult throws NotFound on unknown job', async () => {
+        const mockResponse = { status: () => mockResponse };
         try {
-            await controller.getJobResult('unknown');
+            await controller.getJobResult('unknown', mockResponse);
             strict_1.default.fail('Should fail');
         }
         catch (e) {
@@ -94,8 +117,31 @@ const common_1 = require("@nestjs/common");
         }
     });
     (0, node_test_1.test)('getJobResult returns pending status if NOT COMPLETED', async () => {
-        const res = await controller.getJobResult('456');
+        let statusCode;
+        const mockResponse = {
+            status: (code) => {
+                statusCode = code;
+                return mockResponse;
+            }
+        };
+        const res = await controller.getJobResult('456', mockResponse);
         strict_1.default.strictEqual(res.status, 'QUEUED');
+        strict_1.default.strictEqual(statusCode, 202);
+        strict_1.default.strictEqual(res.progress, 5);
+        strict_1.default.strictEqual(res.recommendedPollIntervalMs, 2000);
+        strict_1.default.strictEqual(res.expectedMaxProcessingMs, 900000);
+    });
+    (0, node_test_1.test)('getJobResult returns failure payload for FAILED job', async () => {
+        let statusCode;
+        const mockResponse = {
+            status: (code) => {
+                statusCode = code;
+                return mockResponse;
+            }
+        };
+        const res = await controller.getJobResult('789', mockResponse);
+        strict_1.default.strictEqual(res.status, 'FAILED');
+        strict_1.default.strictEqual(statusCode, 422);
     });
 });
 //# sourceMappingURL=app.controller.spec.js.map

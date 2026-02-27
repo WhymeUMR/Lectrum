@@ -1,4 +1,5 @@
 import { AppEnv } from '@lecture/config';
+import { Response } from 'express';
 import { QueueService } from '../services/queue.service';
 import { JobStoreService } from '../services/job-store.service';
 export declare class AppController {
@@ -28,10 +29,29 @@ export declare class AppController {
         queue: "lec.v1.ingestion";
     }>;
     getJob(jobId: string): Promise<import("@lecture/pipeline").JobRecord>;
-    getJobResult(jobId: string): Promise<{
+    getJobResult(jobId: string, response: Response): Promise<{
         jobId: string;
-        status: "QUEUED" | "INGESTING" | "INGESTED" | "TRANSCRIBING" | "GENERATING_FLASHCARDS" | "FAILED";
+        status: "FAILED";
         message: string;
+        errorCode: string | null;
+        errorMessage: string | null;
+        progress?: undefined;
+        recommendedPollIntervalMs?: undefined;
+        expectedMaxProcessingMs?: undefined;
+        lectureId?: undefined;
+        transcriptPath?: undefined;
+        transcriptText?: undefined;
+        flashcardsPath?: undefined;
+        flashcards?: undefined;
+    } | {
+        jobId: string;
+        status: "QUEUED" | "INGESTING" | "INGESTED" | "TRANSCRIBING" | "GENERATING_FLASHCARDS";
+        message: string;
+        progress: number;
+        recommendedPollIntervalMs: number;
+        expectedMaxProcessingMs: number;
+        errorCode?: undefined;
+        errorMessage?: undefined;
         lectureId?: undefined;
         transcriptPath?: undefined;
         transcriptText?: undefined;
@@ -46,5 +66,11 @@ export declare class AppController {
         flashcards: any;
         status?: undefined;
         message?: undefined;
+        errorCode?: undefined;
+        errorMessage?: undefined;
+        progress?: undefined;
+        recommendedPollIntervalMs?: undefined;
+        expectedMaxProcessingMs?: undefined;
     }>;
+    private statusToProgress;
 }

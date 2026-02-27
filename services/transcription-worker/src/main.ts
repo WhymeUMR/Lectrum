@@ -6,6 +6,7 @@ import { Job, Queue, Worker } from 'bullmq';
 import { QUEUE_NAMES, QUEUE_POLICIES, TranscriptionJobPayload } from '@lecture/contracts';
 import { APP_ENV, AppEnv, SharedConfigModule, buildRedisConnection } from '@lecture/config';
 import { PipelineRepository, writeArtifact } from '@lecture/pipeline';
+import { planChunking, simulateChunkProcessing } from './chunking';
 
 class TranscriptionProcessor implements OnModuleInit, OnModuleDestroy {
   private worker?: Worker;
@@ -44,6 +45,16 @@ class TranscriptionProcessor implements OnModuleInit, OnModuleDestroy {
           ]
             .filter(Boolean)
             .join('\n');
+
+          const chunkPlan = planChunking(transcriptText.length, {
+            chunkSizeChars: this.env.TRANSCRIPTION_CHUNK_SIZE_CHARS,
+            maxParallelChunks: this.env.TRANSCRIPTION_MAX_PARALLEL_CHUNKS,
+            chunkDelayMs: this.env.TRANSCRIPTION_CHUNK_DELAY_MS
+          });
+          await simulateChunkProcessing(chunkPlan, this.env.TRANSCRIPTION_CHUNK_DELAY_MS);
+          console.log(
+            `transcription chunk plan lecture=${payload.lectureId} chunks=${chunkPlan.chunkCount} waves=${chunkPlan.waves} estimatedMs=${chunkPlan.estimatedLatencyMs}`
+          );
 
           const transcriptRelativePath = path.join('transcripts', `${payload.lectureId}.txt`);
           await writeArtifact(this.env.ARTIFACTS_DIR, transcriptRelativePath, transcriptText);

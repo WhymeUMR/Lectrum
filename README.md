@@ -44,6 +44,14 @@
 - Quality gates и политика отклонения (`FLASHCARD_QUALITY_REJECTED`)
 - Измерение baseline/target метрик: `npm run verify:step8`
 
+## Что реализовано на шаге 9
+
+- Стратегия long-audio latency risk: `docs/step-09-long-audio-risk-strategy.md`
+- Chunking/parallelism планировщик в transcription worker
+- Прогресс и timeout-подсказки для in-progress результата (`202 Accepted`)
+- Латентностный профиль и SLA/alerts: `docs/step-09-latency-profile.md`
+- Верификация шага: `npm run verify:step9`
+
 ## Общие пакеты
 
 - `@lecture/contracts` — versioned queue names + payload schemas + queue retention policies
@@ -110,6 +118,7 @@ npm run test:unit
 npm run test:integration
 npm run test:e2e
 npm run test:all
+npm run verify:step9
 ```
 
 GitHub Actions (`.github/workflows/test.yml`):

@@ -70,17 +70,24 @@ let AppController = class AppController {
             }
             throw error;
         }
-        await this.queueService.enqueueIngestion({
-            jobId,
-            lectureId,
-            sourceType: parsed.sourceType,
-            sourceUrl: parsed.sourceUrl,
-            filename: parsed.filename,
-            mimeType: parsed.mimeType,
-            requestedLanguage: parsed.requestedLanguage ?? 'ru',
-            uploadedAt: new Date().toISOString(),
-            fileBase64: parsed.fileBase64
-        });
+        try {
+            await this.queueService.enqueueIngestion({
+                jobId,
+                lectureId,
+                sourceType: parsed.sourceType,
+                sourceUrl: parsed.sourceUrl,
+                filename: parsed.filename,
+                mimeType: parsed.mimeType,
+                requestedLanguage: parsed.requestedLanguage ?? 'ru',
+                uploadedAt: new Date().toISOString(),
+                fileBase64: parsed.fileBase64
+            });
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            await this.store.repo.setError(jobId, 'INGESTION_ENQUEUE_ERROR', message);
+            throw new common_1.ServiceUnavailableException('Queue is temporarily unavailable');
+        }
         return {
             jobId,
             lectureId,
@@ -95,16 +102,30 @@ let AppController = class AppController {
         }
         return job;
     }
-    async getJobResult(jobId) {
+    async getJobResult(jobId, response) {
         const job = await this.store.repo.getJob(jobId);
         if (!job) {
             throw new common_1.NotFoundException(`Job ${jobId} not found`);
         }
-        if (job.status !== 'COMPLETED') {
+        if (job.status === 'FAILED') {
+            response.status(common_1.HttpStatus.UNPROCESSABLE_ENTITY);
             return {
                 jobId,
                 status: job.status,
-                message: 'Result is not ready yet'
+                message: 'Job processing failed',
+                errorCode: job.errorCode,
+                errorMessage: job.errorMessage
+            };
+        }
+        if (job.status !== 'COMPLETED') {
+            response.status(common_1.HttpStatus.ACCEPTED);
+            return {
+                jobId,
+                status: job.status,
+                message: 'Result is not ready yet',
+                progress: this.statusToProgress(job.status),
+                recommendedPollIntervalMs: this.env.JOB_RESULT_POLL_INTERVAL_MS,
+                expectedMaxProcessingMs: this.env.JOB_EXPECTED_MAX_PROCESSING_MS
             };
         }
         return {
@@ -115,6 +136,18 @@ let AppController = class AppController {
             flashcardsPath: job.flashcardsPath,
             flashcards: job.flashcardsJson ? JSON.parse(job.flashcardsJson) : null
         };
+    }
+    statusToProgress(status) {
+        const map = {
+            QUEUED: 5,
+            INGESTING: 20,
+            INGESTED: 35,
+            TRANSCRIBING: 55,
+            GENERATING_FLASHCARDS: 85,
+            COMPLETED: 100,
+            FAILED: 100
+        };
+        return map[status] ?? 0;
     }
 };
 exports.AppController = AppController;
@@ -148,8 +181,9 @@ __decorate([
 __decorate([
     (0, common_1.Get)('/api/v1/jobs/:jobId/result'),
     __param(0, (0, common_1.Param)('jobId')),
+    __param(1, (0, common_1.Res)({ passthrough: true })),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String]),
+    __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", Promise)
 ], AppController.prototype, "getJobResult", null);
 exports.AppController = AppController = __decorate([

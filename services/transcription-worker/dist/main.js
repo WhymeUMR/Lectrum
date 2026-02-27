@@ -23,6 +23,7 @@ const bullmq_1 = require("bullmq");
 const contracts_1 = require("@lecture/contracts");
 const config_1 = require("@lecture/config");
 const pipeline_1 = require("@lecture/pipeline");
+const chunking_1 = require("./chunking");
 let TranscriptionProcessor = class TranscriptionProcessor {
     constructor(env) {
         this.env = env;
@@ -52,6 +53,13 @@ let TranscriptionProcessor = class TranscriptionProcessor {
                 ]
                     .filter(Boolean)
                     .join('\n');
+                const chunkPlan = (0, chunking_1.planChunking)(transcriptText.length, {
+                    chunkSizeChars: this.env.TRANSCRIPTION_CHUNK_SIZE_CHARS,
+                    maxParallelChunks: this.env.TRANSCRIPTION_MAX_PARALLEL_CHUNKS,
+                    chunkDelayMs: this.env.TRANSCRIPTION_CHUNK_DELAY_MS
+                });
+                await (0, chunking_1.simulateChunkProcessing)(chunkPlan, this.env.TRANSCRIPTION_CHUNK_DELAY_MS);
+                console.log(`transcription chunk plan lecture=${payload.lectureId} chunks=${chunkPlan.chunkCount} waves=${chunkPlan.waves} estimatedMs=${chunkPlan.estimatedLatencyMs}`);
                 const transcriptRelativePath = node_path_1.default.join('transcripts', `${payload.lectureId}.txt`);
                 await (0, pipeline_1.writeArtifact)(this.env.ARTIFACTS_DIR, transcriptRelativePath, transcriptText);
                 await this.repo.saveTranscript(payload.jobId, transcriptRelativePath, transcriptText);

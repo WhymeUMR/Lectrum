@@ -144,7 +144,10 @@ export class AppController {
       return {
         jobId,
         status: job.status,
-        message: 'Result is not ready yet'
+        message: 'Result is not ready yet',
+        progress: this.statusToProgress(job.status),
+        recommendedPollIntervalMs: this.env.JOB_RESULT_POLL_INTERVAL_MS,
+        expectedMaxProcessingMs: this.env.JOB_EXPECTED_MAX_PROCESSING_MS
       };
     }
 
@@ -156,5 +159,18 @@ export class AppController {
       flashcardsPath: job.flashcardsPath,
       flashcards: job.flashcardsJson ? JSON.parse(job.flashcardsJson) : null
     };
+  }
+
+  private statusToProgress(status: string): number {
+    const map: Record<string, number> = {
+      QUEUED: 5,
+      INGESTING: 20,
+      INGESTED: 35,
+      TRANSCRIBING: 55,
+      GENERATING_FLASHCARDS: 85,
+      COMPLETED: 100,
+      FAILED: 100
+    };
+    return map[status] ?? 0;
   }
 }

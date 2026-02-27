@@ -11,6 +11,11 @@ declare const EnvSchema: z.ZodObject<{
     REDIS_CONNECT_TIMEOUT_MS: z.ZodDefault<z.ZodNumber>;
     REDIS_MAX_RETRIES_PER_REQUEST: z.ZodDefault<z.ZodNumber>;
     REDIS_ENABLE_TLS: z.ZodDefault<z.ZodEffects<z.ZodBoolean, boolean, unknown>>;
+    TRANSCRIPTION_CHUNK_SIZE_CHARS: z.ZodDefault<z.ZodNumber>;
+    TRANSCRIPTION_MAX_PARALLEL_CHUNKS: z.ZodDefault<z.ZodNumber>;
+    TRANSCRIPTION_CHUNK_DELAY_MS: z.ZodDefault<z.ZodNumber>;
+    JOB_RESULT_POLL_INTERVAL_MS: z.ZodDefault<z.ZodNumber>;
+    JOB_EXPECTED_MAX_PROCESSING_MS: z.ZodDefault<z.ZodNumber>;
     DATABASE_URL: z.ZodOptional<z.ZodString>;
     ARTIFACTS_DIR: z.ZodDefault<z.ZodString>;
     OPENAI_API_KEY: z.ZodOptional<z.ZodString>;
@@ -27,6 +32,11 @@ declare const EnvSchema: z.ZodObject<{
     REDIS_CONNECT_TIMEOUT_MS: number;
     REDIS_MAX_RETRIES_PER_REQUEST: number;
     REDIS_ENABLE_TLS: boolean;
+    TRANSCRIPTION_CHUNK_SIZE_CHARS: number;
+    TRANSCRIPTION_MAX_PARALLEL_CHUNKS: number;
+    TRANSCRIPTION_CHUNK_DELAY_MS: number;
+    JOB_RESULT_POLL_INTERVAL_MS: number;
+    JOB_EXPECTED_MAX_PROCESSING_MS: number;
     ARTIFACTS_DIR: string;
     DATABASE_URL?: string | undefined;
     OPENAI_API_KEY?: string | undefined;
@@ -43,6 +53,11 @@ declare const EnvSchema: z.ZodObject<{
     REDIS_CONNECT_TIMEOUT_MS?: number | undefined;
     REDIS_MAX_RETRIES_PER_REQUEST?: number | undefined;
     REDIS_ENABLE_TLS?: unknown;
+    TRANSCRIPTION_CHUNK_SIZE_CHARS?: number | undefined;
+    TRANSCRIPTION_MAX_PARALLEL_CHUNKS?: number | undefined;
+    TRANSCRIPTION_CHUNK_DELAY_MS?: number | undefined;
+    JOB_RESULT_POLL_INTERVAL_MS?: number | undefined;
+    JOB_EXPECTED_MAX_PROCESSING_MS?: number | undefined;
     DATABASE_URL?: string | undefined;
     ARTIFACTS_DIR?: string | undefined;
     OPENAI_API_KEY?: string | undefined;
