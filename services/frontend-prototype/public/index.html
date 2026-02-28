@@ -68,6 +68,7 @@
     <a href="#transcript">Транскрипция</a>
     <a href="#highlights">Таймкоды</a>
     <a href="#summary">Конспект</a>
+    <a href="#assistant">Помощник</a>
     <a href="#flashcards">Карточки</a>
   </nav>
 
@@ -110,6 +111,18 @@
       <div id="summary-output">Пока нет.</div>
     </section>
 
+    <section id="assistant">
+      <h2>Помощник по материалу</h2>
+      <form id="assistant-form">
+        <label for="assistant-session">Session ID:</label>
+        <input id="assistant-session" name="assistant-session" type="text" maxlength="128" required />
+        <label for="assistant-question">Вопрос по лекции:</label>
+        <input id="assistant-question" name="assistant-question" type="text" minlength="3" maxlength="2000" required />
+        <button id="assistant-btn" type="submit" disabled>Спросить</button>
+      </form>
+      <div id="assistant-output">Пока нет.</div>
+    </section>
+
     <section id="flashcards">
       <h2>Карточки</h2>
       <form id="flashcards-form">
@@ -135,6 +148,12 @@
 
     const summaryOutput = document.getElementById('summary-output');
     const summaryBtn = document.getElementById('summary-btn');
+
+    const assistantForm = document.getElementById('assistant-form');
+    const assistantSessionInput = document.getElementById('assistant-session');
+    const assistantQuestionInput = document.getElementById('assistant-question');
+    const assistantBtn = document.getElementById('assistant-btn');
+    const assistantOutput = document.getElementById('assistant-output');
 
     const flashcardsForm = document.getElementById('flashcards-form');
     const flashcardsOutput = document.getElementById('flashcards-output');
@@ -258,6 +277,42 @@
       }
       flashcardsOutput.appendChild(list);
     }
+
+    function createDefaultSessionId() {
+      if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+        return window.crypto.randomUUID();
+      }
+      return `session-${Date.now()}`;
+    }
+
+    function setAssistant(obj) {
+      if (!obj) {
+        assistantOutput.textContent = 'Пока нет.';
+        return;
+      }
+      const answer = String(obj.answer || '').trim();
+      assistantOutput.textContent = answer || 'Нет ответа.';
+    }
+
+    async function askAssistant(jobId, sessionId, question) {
+      const res = await fetch('/api/v1/assistant/ask', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          jobId,
+          sessionId,
+          question
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const details = data?.details ? `\n${data.details}` : '';
+        throw new Error((data?.errorCode || data?.message || 'Ошибка помощника') + details);
+      }
+      return data;
+    }
+
+    assistantSessionInput.value = createDefaultSessionId();
 
     async function pollUntilCompleted(jobId) {
       for (let i = 0; i < 180; i++) {
@@ -399,11 +454,13 @@
       setTranscript(null);
       setHighlights(null);
       setSummary(null);
+      setAssistant(null);
       setFlashcards(null);
 
       flashcardsBtn.disabled = true;
       highlightsBtn.disabled = true;
       summaryBtn.disabled = true;
+      assistantBtn.disabled = true;
       currentJobId = null;
 
       const file = fileInput.files && fileInput.files[0];
@@ -443,6 +500,7 @@
         flashcardsBtn.disabled = false;
         highlightsBtn.disabled = false;
         summaryBtn.disabled = false;
+        assistantBtn.disabled = false;
 
         await loadTranscript(jobId);
       } catch (error) {
@@ -519,6 +577,35 @@
         }
         setStatus(`Карточки поставлены в очередь: ${count}`);
         await pollFlashcards(currentJobId);
+      } catch (error) {
+        setStatus('Ошибка');
+        setError(error instanceof Error ? error.message : String(error));
+      }
+    });
+
+    assistantForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      setError('');
+      if (!currentJobId) {
+        setError('Сначала загрузите и обработайте аудио');
+        return;
+      }
+      const sessionId = String(assistantSessionInput.value || '').trim();
+      const question = String(assistantQuestionInput.value || '').trim();
+      if (!sessionId) {
+        setError('Укажите sessionId');
+        return;
+      }
+      if (question.length < 3) {
+        setError('Вопрос должен быть не короче 3 символов');
+        return;
+      }
+
+      try {
+        setStatus('Отправляем вопрос помощнику...');
+        const data = await askAssistant(currentJobId, sessionId, question);
+        setAssistant(data);
+        setStatus('COMPLETED');
       } catch (error) {
         setStatus('Ошибка');
         setError(error instanceof Error ? error.message : String(error));

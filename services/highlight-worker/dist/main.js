@@ -43,7 +43,8 @@ let HighlightProcessor = class HighlightProcessor {
                 const highlights = await (0, highlight_generation_1.generateHighlights)(transcript, {
                     apiKey: this.env.OPENAI_API_KEY,
                     model: this.env.OPENAI_MODEL,
-                    baseUrl: this.env.OPENAI_BASE_URL
+                    baseUrl: this.env.OPENAI_BASE_URL,
+                    timeoutMs: Math.max(45_000, Math.floor(this.env.SUMMARY_AI_TIMEOUT_MS / 2))
                 }, payload.maxHighlights);
                 const highlightsJson = JSON.stringify(highlights, null, 2);
                 const highlightsPath = node_path_1.default.join('highlights', `${payload.lectureId}.json`);

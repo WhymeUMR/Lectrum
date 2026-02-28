@@ -28,13 +28,19 @@ import { CreateIngestionRequestSchema } from '../dto/create-ingestion-request.sc
 import { ZodValidationPipe } from '../pipes/zod-validation.pipe';
 import { GenerateFlashcardsRequestSchema } from '../dto/generate-flashcards-request.schema';
 import { GenerateFlashcardsByJobRequestSchema } from '../dto/generate-flashcards-by-job-request.schema';
+import { AssistantAskRequestSchema } from '../dto/assistant-ask-request.schema';
+import {
+  AssistantGenerationError,
+  MaterialAssistantService
+} from '../services/material-assistant.service';
 
 @Controller()
 export class AppController {
   constructor(
     @Inject(APP_ENV) private readonly env: AppEnv,
     private readonly queueService: QueueService,
-    private readonly store: JobStoreService
+    private readonly store: JobStoreService,
+    private readonly materialAssistant: MaterialAssistantService
   ) {}
 
   @Get('/health')
@@ -340,6 +346,68 @@ export class AppController {
       jobId,
       lectureId: job.lectureId,
       summary: JSON.parse(job.summaryJson)
+    };
+  }
+
+  @Post('/api/v1/assistant/ask')
+  async askMaterialAssistant(
+    @Body(new ZodValidationPipe(AssistantAskRequestSchema))
+    body: { jobId: string; question: string; sessionId: string }
+  ) {
+    const job = await this.store.repo.getJob(body.jobId);
+    if (!job) {
+      throw new NotFoundException(`Job ${body.jobId} not found`);
+    }
+    if (!job.transcriptText) {
+      throw new ConflictException('Transcript is not ready yet');
+    }
+
+    const history = await this.store.repo.getAssistantHistory(body.jobId, body.sessionId, 12);
+    await this.store.repo.appendAssistantMessage(body.jobId, body.sessionId, 'user', body.question);
+
+    let result: Awaited<ReturnType<MaterialAssistantService['ask']>>;
+    try {
+      result = await this.materialAssistant.ask({
+        question: body.question,
+        transcriptText: job.transcriptText,
+        transcriptJson: job.transcriptJson,
+        summaryJson: job.summaryJson,
+        history
+      });
+    } catch (error) {
+      const details = error instanceof Error ? error.message : String(error);
+      const errorCode =
+        error instanceof AssistantGenerationError
+          ? error.code
+          : 'ASSISTANT_AI_HTTP_ERROR';
+      throw new ServiceUnavailableException({
+        message: 'Assistant provider is temporarily unavailable',
+        errorCode,
+        details
+      });
+    }
+
+    await this.store.repo.appendAssistantMessage(
+      body.jobId,
+      body.sessionId,
+      'assistant',
+      result.answer
+    );
+    await this.store.repo.trimAssistantHistory(body.jobId, body.sessionId, 16);
+
+    return {
+      jobId: body.jobId,
+      sessionId: body.sessionId,
+      answer: result.answer,
+      citations: result.citations,
+      webSources: result.webSources,
+      sources: {
+        lecture: result.citations,
+        web: result.webSources
+      },
+      confidence: result.confidence,
+      reason: result.reason,
+      refused: result.refused
     };
   }
 

@@ -2,11 +2,13 @@ import { AppEnv } from '@lecture/config';
 import { Response } from 'express';
 import { QueueService } from '../services/queue.service';
 import { JobStoreService } from '../services/job-store.service';
+import { MaterialAssistantService } from '../services/material-assistant.service';
 export declare class AppController {
     private readonly env;
     private readonly queueService;
     private readonly store;
-    constructor(env: AppEnv, queueService: QueueService, store: JobStoreService);
+    private readonly materialAssistant;
+    constructor(env: AppEnv, queueService: QueueService, store: JobStoreService, materialAssistant: MaterialAssistantService);
     health(): {
         status: string;
         service: string;
@@ -176,6 +178,24 @@ export declare class AppController {
         message?: undefined;
         errorCode?: undefined;
         errorMessage?: undefined;
+    }>;
+    askMaterialAssistant(body: {
+        jobId: string;
+        question: string;
+        sessionId: string;
+    }): Promise<{
+        jobId: string;
+        sessionId: string;
+        answer: string;
+        citations: import("../services/material-assistant.service").AssistantCitation[];
+        webSources: import("../services/material-assistant.service").AssistantWebSource[];
+        sources: {
+            lecture: import("../services/material-assistant.service").AssistantCitation[];
+            web: import("../services/material-assistant.service").AssistantWebSource[];
+        };
+        confidence: number;
+        reason: "ok" | "web_fallback" | "no_context";
+        refused: boolean;
     }>;
     generateFlashcards(jobId: string, body: {
         count: number;

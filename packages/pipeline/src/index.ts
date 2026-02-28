@@ -14,6 +14,13 @@ export type JobStatus =
   | 'FAILED';
 
 export type SourceType = 'upload' | 'url';
+export type AssistantMessageRole = 'user' | 'assistant';
+
+export interface AssistantSessionMessage {
+  role: AssistantMessageRole;
+  content: string;
+  createdAt: string;
+}
 
 export interface CreateJobInput {
   jobId: string;
@@ -93,6 +100,20 @@ async function ensurePipelineSchema(pool: Pool): Promise<void> {
       CREATE UNIQUE INDEX IF NOT EXISTS uq_single_active_job
       ON lecture_jobs ((1))
       WHERE status IN ('QUEUED', 'INGESTING', 'INGESTED', 'TRANSCRIBING');
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS assistant_session_messages (
+        id BIGSERIAL PRIMARY KEY,
+        job_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CHECK (role IN ('user', 'assistant'))
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_assistant_session_messages_lookup
+      ON assistant_session_messages(job_id, session_id, id DESC);
     `);
     await pool.query(`
       ALTER TABLE lecture_jobs
@@ -236,6 +257,59 @@ export class PipelineRepository {
       WHERE job_id = $1
       `,
       [jobId, code, message]
+    );
+  }
+
+  async appendAssistantMessage(
+    jobId: string,
+    sessionId: string,
+    role: AssistantMessageRole,
+    content: string
+  ): Promise<void> {
+    await this.pool.query(
+      `
+      INSERT INTO assistant_session_messages (job_id, session_id, role, content)
+      VALUES ($1, $2, $3, $4)
+      `,
+      [jobId, sessionId, role, content]
+    );
+  }
+
+  async getAssistantHistory(
+    jobId: string,
+    sessionId: string,
+    limit = 12
+  ): Promise<AssistantSessionMessage[]> {
+    const safeLimit = Math.max(1, Math.min(40, Math.floor(limit)));
+    const result = await this.pool.query(
+      `
+      SELECT role, content, created_at AS "createdAt"
+      FROM assistant_session_messages
+      WHERE job_id = $1 AND session_id = $2
+      ORDER BY id DESC
+      LIMIT $3
+      `,
+      [jobId, sessionId, safeLimit]
+    );
+    return (result.rows as AssistantSessionMessage[]).reverse();
+  }
+
+  async trimAssistantHistory(jobId: string, sessionId: string, maxMessages = 16): Promise<void> {
+    const safeMax = Math.max(2, Math.min(100, Math.floor(maxMessages)));
+    await this.pool.query(
+      `
+      DELETE FROM assistant_session_messages
+      WHERE job_id = $1
+        AND session_id = $2
+        AND id NOT IN (
+          SELECT id
+          FROM assistant_session_messages
+          WHERE job_id = $1 AND session_id = $2
+          ORDER BY id DESC
+          LIMIT $3
+        )
+      `,
+      [jobId, sessionId, safeMax]
     );
   }
 

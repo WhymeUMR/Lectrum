@@ -54,6 +54,20 @@ async function ensurePipelineSchema(pool) {
       WHERE status IN ('QUEUED', 'INGESTING', 'INGESTED', 'TRANSCRIBING');
     `);
         await pool.query(`
+      CREATE TABLE IF NOT EXISTS assistant_session_messages (
+        id BIGSERIAL PRIMARY KEY,
+        job_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CHECK (role IN ('user', 'assistant'))
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_assistant_session_messages_lookup
+      ON assistant_session_messages(job_id, session_id, id DESC);
+    `);
+        await pool.query(`
       ALTER TABLE lecture_jobs
       ADD COLUMN IF NOT EXISTS flashcards_path TEXT;
 
@@ -162,6 +176,38 @@ class PipelineRepository {
       SET status = 'FAILED', error_code = $2, error_message = $3, updated_at = NOW()
       WHERE job_id = $1
       `, [jobId, code, message]);
+    }
+    async appendAssistantMessage(jobId, sessionId, role, content) {
+        await this.pool.query(`
+      INSERT INTO assistant_session_messages (job_id, session_id, role, content)
+      VALUES ($1, $2, $3, $4)
+      `, [jobId, sessionId, role, content]);
+    }
+    async getAssistantHistory(jobId, sessionId, limit = 12) {
+        const safeLimit = Math.max(1, Math.min(40, Math.floor(limit)));
+        const result = await this.pool.query(`
+      SELECT role, content, created_at AS "createdAt"
+      FROM assistant_session_messages
+      WHERE job_id = $1 AND session_id = $2
+      ORDER BY id DESC
+      LIMIT $3
+      `, [jobId, sessionId, safeLimit]);
+        return result.rows.reverse();
+    }
+    async trimAssistantHistory(jobId, sessionId, maxMessages = 16) {
+        const safeMax = Math.max(2, Math.min(100, Math.floor(maxMessages)));
+        await this.pool.query(`
+      DELETE FROM assistant_session_messages
+      WHERE job_id = $1
+        AND session_id = $2
+        AND id NOT IN (
+          SELECT id
+          FROM assistant_session_messages
+          WHERE job_id = $1 AND session_id = $2
+          ORDER BY id DESC
+          LIMIT $3
+        )
+      `, [jobId, sessionId, safeMax]);
     }
     async saveFlashcards(jobId, flashcardsPath, flashcardsJson) {
         await this.pool.query(`

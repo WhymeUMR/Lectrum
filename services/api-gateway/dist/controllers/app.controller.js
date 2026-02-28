@@ -29,11 +29,14 @@ const create_ingestion_request_schema_1 = require("../dto/create-ingestion-reque
 const zod_validation_pipe_1 = require("../pipes/zod-validation.pipe");
 const generate_flashcards_request_schema_1 = require("../dto/generate-flashcards-request.schema");
 const generate_flashcards_by_job_request_schema_1 = require("../dto/generate-flashcards-by-job-request.schema");
+const assistant_ask_request_schema_1 = require("../dto/assistant-ask-request.schema");
+const material_assistant_service_1 = require("../services/material-assistant.service");
 let AppController = class AppController {
-    constructor(env, queueService, store) {
+    constructor(env, queueService, store, materialAssistant) {
         this.env = env;
         this.queueService = queueService;
         this.store = store;
+        this.materialAssistant = materialAssistant;
     }
     health() {
         return {
@@ -290,6 +293,54 @@ let AppController = class AppController {
             summary: JSON.parse(job.summaryJson)
         };
     }
+    async askMaterialAssistant(body) {
+        const job = await this.store.repo.getJob(body.jobId);
+        if (!job) {
+            throw new common_1.NotFoundException(`Job ${body.jobId} not found`);
+        }
+        if (!job.transcriptText) {
+            throw new common_1.ConflictException('Transcript is not ready yet');
+        }
+        const history = await this.store.repo.getAssistantHistory(body.jobId, body.sessionId, 12);
+        await this.store.repo.appendAssistantMessage(body.jobId, body.sessionId, 'user', body.question);
+        let result;
+        try {
+            result = await this.materialAssistant.ask({
+                question: body.question,
+                transcriptText: job.transcriptText,
+                transcriptJson: job.transcriptJson,
+                summaryJson: job.summaryJson,
+                history
+            });
+        }
+        catch (error) {
+            const details = error instanceof Error ? error.message : String(error);
+            const errorCode = error instanceof material_assistant_service_1.AssistantGenerationError
+                ? error.code
+                : 'ASSISTANT_AI_HTTP_ERROR';
+            throw new common_1.ServiceUnavailableException({
+                message: 'Assistant provider is temporarily unavailable',
+                errorCode,
+                details
+            });
+        }
+        await this.store.repo.appendAssistantMessage(body.jobId, body.sessionId, 'assistant', result.answer);
+        await this.store.repo.trimAssistantHistory(body.jobId, body.sessionId, 16);
+        return {
+            jobId: body.jobId,
+            sessionId: body.sessionId,
+            answer: result.answer,
+            citations: result.citations,
+            webSources: result.webSources,
+            sources: {
+                lecture: result.citations,
+                web: result.webSources
+            },
+            confidence: result.confidence,
+            reason: result.reason,
+            refused: result.refused
+        };
+    }
     async generateFlashcards(jobId, body, response) {
         const result = await this.requestFlashcardsGeneration(jobId, body.count);
         response.status(common_1.HttpStatus.ACCEPTED);
@@ -504,6 +555,13 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], AppController.prototype, "getLectureSummary", null);
 __decorate([
+    (0, common_1.Post)('/api/v1/assistant/ask'),
+    __param(0, (0, common_1.Body)(new zod_validation_pipe_1.ZodValidationPipe(assistant_ask_request_schema_1.AssistantAskRequestSchema))),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], AppController.prototype, "askMaterialAssistant", null);
+__decorate([
     (0, common_1.Post)('/api/v1/jobs/:jobId/flashcards'),
     __param(0, (0, common_1.Param)('jobId')),
     __param(1, (0, common_1.Body)(new zod_validation_pipe_1.ZodValidationPipe(generate_flashcards_request_schema_1.GenerateFlashcardsRequestSchema))),
@@ -524,6 +582,7 @@ exports.AppController = AppController = __decorate([
     (0, common_1.Controller)(),
     __param(0, (0, common_1.Inject)(config_1.APP_ENV)),
     __metadata("design:paramtypes", [Object, queue_service_1.QueueService,
-        job_store_service_1.JobStoreService])
+        job_store_service_1.JobStoreService,
+        material_assistant_service_1.MaterialAssistantService])
 ], AppController);
 //# sourceMappingURL=app.controller.js.map

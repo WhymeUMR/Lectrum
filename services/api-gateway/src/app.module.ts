@@ -3,10 +3,11 @@ import { SharedConfigModule } from '@lecture/config';
 import { AppController } from './controllers/app.controller';
 import { QueueService } from './services/queue.service';
 import { JobStoreService } from './services/job-store.service';
+import { MaterialAssistantService } from './services/material-assistant.service';
 
 @Module({
   imports: [SharedConfigModule.forRoot('api-gateway')],
   controllers: [AppController],
-  providers: [QueueService, JobStoreService]
+  providers: [QueueService, JobStoreService, MaterialAssistantService]
 })
 export class AppModule {}

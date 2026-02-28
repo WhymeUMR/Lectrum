@@ -22,5 +22,6 @@ export interface HighlightGenerationOptions {
     apiKey?: string;
     model?: string;
     baseUrl?: string;
+    timeoutMs?: number;
 }
 export declare function generateHighlights(transcript: TranscriptData, options: HighlightGenerationOptions, maxHighlights?: number): Promise<TranscriptHighlight[]>;

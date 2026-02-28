@@ -1,6 +1,12 @@
 import { Pool } from 'pg';
 export type JobStatus = 'QUEUED' | 'INGESTING' | 'INGESTED' | 'TRANSCRIBING' | 'GENERATING_HIGHLIGHTS' | 'GENERATING_SUMMARY' | 'GENERATING_FLASHCARDS' | 'COMPLETED' | 'FAILED';
 export type SourceType = 'upload' | 'url';
+export type AssistantMessageRole = 'user' | 'assistant';
+export interface AssistantSessionMessage {
+    role: AssistantMessageRole;
+    content: string;
+    createdAt: string;
+}
 export interface CreateJobInput {
     jobId: string;
     lectureId: string;
@@ -50,6 +56,9 @@ export declare class PipelineRepository {
     saveTranscript(jobId: string, transcriptPath: string, transcriptText: string): Promise<void>;
     saveTranscriptResult(jobId: string, transcriptPath: string, transcriptText: string, transcriptJson: string | null): Promise<void>;
     setError(jobId: string, code: string, message: string): Promise<void>;
+    appendAssistantMessage(jobId: string, sessionId: string, role: AssistantMessageRole, content: string): Promise<void>;
+    getAssistantHistory(jobId: string, sessionId: string, limit?: number): Promise<AssistantSessionMessage[]>;
+    trimAssistantHistory(jobId: string, sessionId: string, maxMessages?: number): Promise<void>;
     saveFlashcards(jobId: string, flashcardsPath: string, flashcardsJson: string): Promise<void>;
     saveSummary(jobId: string, summaryPath: string, summaryJson: string): Promise<void>;
     saveHighlights(jobId: string, highlightsPath: string, highlightsJson: string): Promise<void>;

@@ -34,7 +34,8 @@ class HighlightProcessor implements OnModuleInit, OnModuleDestroy {
             {
               apiKey: this.env.OPENAI_API_KEY,
               model: this.env.OPENAI_MODEL,
-              baseUrl: this.env.OPENAI_BASE_URL
+              baseUrl: this.env.OPENAI_BASE_URL,
+              timeoutMs: Math.max(45_000, Math.floor(this.env.SUMMARY_AI_TIMEOUT_MS / 2))
             },
             payload.maxHighlights
           );

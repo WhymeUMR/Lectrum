@@ -2,12 +2,14 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { AppController } from './app.controller';
 import { BadRequestException, ConflictException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { AssistantGenerationError } from '../services/material-assistant.service';
 
 describe('AppController', () => {
     let controller: AppController;
     let mockQueueService: any;
     let mockJobStore: any;
     let mockEnv: any;
+    let mockAssistantService: any;
 
     mockEnv = {
         SERVICE_NAME: 'api-gateway',
@@ -24,12 +26,25 @@ describe('AppController', () => {
         enqueueSummary: async () => { }
     };
 
+    mockAssistantService = {
+        ask: async () => ({
+            answer: 'Ответ по лекции: ключевая идея объясняется в материале.',
+            citations: [{ startSec: 0, endSec: 5, text: 'Ключевой фрагмент лекции.' }],
+            webSources: [],
+            confidence: 0.86,
+            refused: false
+        })
+    };
+
     mockJobStore = {
         repo: {
             getActiveJob: async () => null,
             createJob: async () => { },
             updateStatus: async () => { },
             saveSummary: async () => { },
+            appendAssistantMessage: async () => { },
+            getAssistantHistory: async () => [],
+            trimAssistantHistory: async () => { },
             getJob: async (id: string) => {
                 if (id === '123') return {
                     jobId: '123',
@@ -54,7 +69,7 @@ describe('AppController', () => {
         }
     };
 
-    controller = new AppController(mockEnv, mockQueueService, mockJobStore);
+    controller = new AppController(mockEnv, mockQueueService, mockJobStore, mockAssistantService);
 
     test('health endpoint returns config injected', () => {
         const res = controller.health();
@@ -273,5 +288,73 @@ describe('AppController', () => {
         mockJobStore.repo.getJob = async () => ({ jobId: '1', lectureId: 'l-1', status: 'QUEUED', transcriptText: null });
         const mockResponse: any = { status: () => mockResponse };
         await assert.rejects(() => controller.generateFlashcards('1', { count: 2 }, mockResponse), (e) => e instanceof ConflictException);
+    });
+
+    test('askMaterialAssistant returns answer with citations and confidence', async () => {
+        mockJobStore.repo.getJob = async () => ({
+            jobId: '123',
+            lectureId: 'l-123',
+            status: 'COMPLETED',
+            transcriptText: 'text',
+            transcriptJson: JSON.stringify({ duration: 10, text: 'text', segments: [{ start: 0, end: 1, text: 'text' }] }),
+            summaryJson: null
+        });
+        const res = await controller.askMaterialAssistant({
+            jobId: '123',
+            sessionId: 'session-1',
+            question: 'О чем ключевая идея лекции?'
+        });
+        assert.equal(typeof res.answer, 'string');
+        assert.equal(Array.isArray(res.citations), true);
+        assert.equal(Array.isArray(res.webSources), true);
+        assert.equal(res.sources && Array.isArray(res.sources.lecture), true);
+        assert.equal(res.sources && Array.isArray(res.sources.web), true);
+        assert.equal(typeof res.confidence, 'number');
+        assert.equal(res.refused, false);
+    });
+
+    test('askMaterialAssistant rejects when transcript is not ready', async () => {
+        mockJobStore.repo.getJob = async (id: string) => {
+            if (id === 'not-ready') {
+                return {
+                    jobId: 'not-ready',
+                    lectureId: 'l-nr',
+                    status: 'QUEUED',
+                    transcriptText: null
+                };
+            }
+            return null;
+        };
+        await assert.rejects(
+            () => controller.askMaterialAssistant({
+                jobId: 'not-ready',
+                sessionId: 'session-2',
+                question: 'Что было в лекции?'
+            }),
+            (e) => e instanceof ConflictException
+        );
+    });
+
+    test('askMaterialAssistant maps provider errors to 503', async () => {
+        mockJobStore.repo.getJob = async () => ({
+            jobId: '123',
+            lectureId: 'l-123',
+            status: 'COMPLETED',
+            transcriptText: 'text',
+            transcriptJson: JSON.stringify({ duration: 10, text: 'text', segments: [{ start: 0, end: 1, text: 'text' }] }),
+            summaryJson: null
+        });
+        mockAssistantService.ask = async () => {
+            throw new AssistantGenerationError('ASSISTANT_AI_HTTP_ERROR', 'timeout');
+        };
+
+        await assert.rejects(
+            () => controller.askMaterialAssistant({
+                jobId: '123',
+                sessionId: 'session-timeout',
+                question: 'Скажи итог'
+            }),
+            (e) => e instanceof ServiceUnavailableException
+        );
     });
 });

@@ -7,11 +7,13 @@ const node_test_1 = require("node:test");
 const strict_1 = __importDefault(require("node:assert/strict"));
 const app_controller_1 = require("./app.controller");
 const common_1 = require("@nestjs/common");
+const material_assistant_service_1 = require("../services/material-assistant.service");
 (0, node_test_1.describe)('AppController', () => {
     let controller;
     let mockQueueService;
     let mockJobStore;
     let mockEnv;
+    let mockAssistantService;
     mockEnv = {
         SERVICE_NAME: 'api-gateway',
         APP_ENV: 'test',
@@ -25,12 +27,24 @@ const common_1 = require("@nestjs/common");
         enqueueHighlights: async () => { },
         enqueueSummary: async () => { }
     };
+    mockAssistantService = {
+        ask: async () => ({
+            answer: 'Ответ по лекции: ключевая идея объясняется в материале.',
+            citations: [{ startSec: 0, endSec: 5, text: 'Ключевой фрагмент лекции.' }],
+            webSources: [],
+            confidence: 0.86,
+            refused: false
+        })
+    };
     mockJobStore = {
         repo: {
             getActiveJob: async () => null,
             createJob: async () => { },
             updateStatus: async () => { },
             saveSummary: async () => { },
+            appendAssistantMessage: async () => { },
+            getAssistantHistory: async () => [],
+            trimAssistantHistory: async () => { },
             getJob: async (id) => {
                 if (id === '123')
                     return {
@@ -57,7 +71,7 @@ const common_1 = require("@nestjs/common");
             }
         }
     };
-    controller = new app_controller_1.AppController(mockEnv, mockQueueService, mockJobStore);
+    controller = new app_controller_1.AppController(mockEnv, mockQueueService, mockJobStore, mockAssistantService);
     (0, node_test_1.test)('health endpoint returns config injected', () => {
         const res = controller.health();
         strict_1.default.strictEqual(res.status, 'ok');
@@ -234,6 +248,64 @@ const common_1 = require("@nestjs/common");
         mockJobStore.repo.getJob = async () => ({ jobId: '1', lectureId: 'l-1', status: 'QUEUED', transcriptText: null });
         const mockResponse = { status: () => mockResponse };
         await strict_1.default.rejects(() => controller.generateFlashcards('1', { count: 2 }, mockResponse), (e) => e instanceof common_1.ConflictException);
+    });
+    (0, node_test_1.test)('askMaterialAssistant returns answer with citations and confidence', async () => {
+        mockJobStore.repo.getJob = async () => ({
+            jobId: '123',
+            lectureId: 'l-123',
+            status: 'COMPLETED',
+            transcriptText: 'text',
+            transcriptJson: JSON.stringify({ duration: 10, text: 'text', segments: [{ start: 0, end: 1, text: 'text' }] }),
+            summaryJson: null
+        });
+        const res = await controller.askMaterialAssistant({
+            jobId: '123',
+            sessionId: 'session-1',
+            question: 'О чем ключевая идея лекции?'
+        });
+        strict_1.default.equal(typeof res.answer, 'string');
+        strict_1.default.equal(Array.isArray(res.citations), true);
+        strict_1.default.equal(Array.isArray(res.webSources), true);
+        strict_1.default.equal(res.sources && Array.isArray(res.sources.lecture), true);
+        strict_1.default.equal(res.sources && Array.isArray(res.sources.web), true);
+        strict_1.default.equal(typeof res.confidence, 'number');
+        strict_1.default.equal(res.refused, false);
+    });
+    (0, node_test_1.test)('askMaterialAssistant rejects when transcript is not ready', async () => {
+        mockJobStore.repo.getJob = async (id) => {
+            if (id === 'not-ready') {
+                return {
+                    jobId: 'not-ready',
+                    lectureId: 'l-nr',
+                    status: 'QUEUED',
+                    transcriptText: null
+                };
+            }
+            return null;
+        };
+        await strict_1.default.rejects(() => controller.askMaterialAssistant({
+            jobId: 'not-ready',
+            sessionId: 'session-2',
+            question: 'Что было в лекции?'
+        }), (e) => e instanceof common_1.ConflictException);
+    });
+    (0, node_test_1.test)('askMaterialAssistant maps provider errors to 503', async () => {
+        mockJobStore.repo.getJob = async () => ({
+            jobId: '123',
+            lectureId: 'l-123',
+            status: 'COMPLETED',
+            transcriptText: 'text',
+            transcriptJson: JSON.stringify({ duration: 10, text: 'text', segments: [{ start: 0, end: 1, text: 'text' }] }),
+            summaryJson: null
+        });
+        mockAssistantService.ask = async () => {
+            throw new material_assistant_service_1.AssistantGenerationError('ASSISTANT_AI_HTTP_ERROR', 'timeout');
+        };
+        await strict_1.default.rejects(() => controller.askMaterialAssistant({
+            jobId: '123',
+            sessionId: 'session-timeout',
+            question: 'Скажи итог'
+        }), (e) => e instanceof common_1.ServiceUnavailableException);
     });
 });
 //# sourceMappingURL=app.controller.spec.js.map
