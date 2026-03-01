@@ -60,6 +60,26 @@
     #recap-text-output {
       white-space: pre-wrap;
     }
+
+    #karaoke-output {
+      white-space: pre-wrap;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 10px;
+      min-height: 56px;
+      margin-top: 8px;
+    }
+
+    .karaoke-word {
+      transition: background-color 120ms ease, color 120ms ease;
+      padding: 0 1px;
+      border-radius: 3px;
+    }
+
+    .karaoke-word.active {
+      background: #111;
+      color: #fff;
+    }
   </style>
 </head>
 
@@ -127,9 +147,17 @@
 
     <section id="recap-audio">
       <h2>Пересказ + озвучка</h2>
+      <label for="tts-voice-select">Голос ElevenLabs:</label>
+      <select id="tts-voice-select" disabled>
+        <option value="">Загрузка голосов...</option>
+      </select>
+      <button id="tts-voice-refresh-btn" type="button">Обновить голоса</button>
+      <audio id="tts-voice-preview-player" controls preload="none"></audio>
       <button id="recap-audio-btn" type="button" disabled>Сделать пересказ и озвучить</button>
+      <button id="recap-karaoke-btn" type="button" disabled>Караоке-режим</button>
       <p id="recap-text-output">Пока нет.</p>
       <audio id="recap-audio-player" controls preload="none"></audio>
+      <div id="karaoke-output">Пока нет.</div>
     </section>
 
     <section id="flashcards">
@@ -164,8 +192,13 @@
     const assistantBtn = document.getElementById('assistant-btn');
     const assistantOutput = document.getElementById('assistant-output');
     const recapAudioBtn = document.getElementById('recap-audio-btn');
+    const recapKaraokeBtn = document.getElementById('recap-karaoke-btn');
     const recapTextOutput = document.getElementById('recap-text-output');
     const recapAudioPlayer = document.getElementById('recap-audio-player');
+    const karaokeOutput = document.getElementById('karaoke-output');
+    const ttsVoiceSelect = document.getElementById('tts-voice-select');
+    const ttsVoiceRefreshBtn = document.getElementById('tts-voice-refresh-btn');
+    const ttsVoicePreviewPlayer = document.getElementById('tts-voice-preview-player');
 
     const flashcardsForm = document.getElementById('flashcards-form');
     const flashcardsOutput = document.getElementById('flashcards-output');
@@ -174,6 +207,9 @@
 
     let currentJobId = null;
     let recapAudioBlobUrl = null;
+    let voicePreviewBlobUrl = null;
+    let selectedTtsVoiceId = '';
+    let karaokeWords = [];
 
     function setStatus(text) {
       statusOutput.textContent = text;
@@ -325,13 +361,14 @@
       return data;
     }
 
-    async function requestRecapAudioStream(jobId, sessionId) {
+    async function requestRecapAudioStream(jobId, sessionId, ttsVoiceId) {
       const res = await fetch('/api/v1/assistant/recap-audio/stream', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           jobId,
-          sessionId
+          sessionId,
+          ...(ttsVoiceId ? { ttsVoiceId } : {})
         })
       });
       if (!res.ok) {
@@ -348,6 +385,89 @@
       const recapPreview = previewRaw ? decodeURIComponent(previewRaw) : '';
       const blob = await res.blob();
       return { recapPreview, blob };
+    }
+
+    async function requestTtsVoices() {
+      const res = await fetch('/api/v1/assistant/tts/voices');
+      const data = await res.json();
+      if (!res.ok) {
+        const details = data?.details ? `\n${data.details}` : '';
+        throw new Error((data?.errorCode || data?.message || 'Ошибка загрузки голосов') + details);
+      }
+      return data;
+    }
+
+    async function requestTtsPreview(voiceId) {
+      const res = await fetch('/api/v1/assistant/tts-preview/stream', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ttsVoiceId: voiceId })
+      });
+      if (!res.ok) {
+        let data = null;
+        try {
+          data = await res.json();
+        } catch {
+          data = null;
+        }
+        const details = data?.details ? `\n${data.details}` : '';
+        throw new Error((data?.errorCode || data?.message || 'Ошибка предпрослушки голоса') + details);
+      }
+      return await res.blob();
+    }
+
+    function setVoiceOptions(data) {
+      const voices = Array.isArray(data?.voices) ? data.voices : [];
+      const defaultVoiceId = String(data?.defaultVoiceId || '').trim();
+      const oldValue = selectedTtsVoiceId || localStorage.getItem('ttsVoiceId') || '';
+      ttsVoiceSelect.innerHTML = '';
+      if (voices.length === 0) {
+        const option = document.createElement('option');
+        option.value = '';
+        option.textContent = 'Голоса недоступны';
+        ttsVoiceSelect.appendChild(option);
+        ttsVoiceSelect.disabled = true;
+        selectedTtsVoiceId = '';
+        return;
+      }
+      for (const voice of voices) {
+        const option = document.createElement('option');
+        option.value = String(voice.voiceId || '');
+        const lang = String(voice.language || '').trim();
+        option.textContent = `${String(voice.name || 'Voice')} ${lang ? `(${lang})` : ''}`.trim();
+        ttsVoiceSelect.appendChild(option);
+      }
+      const candidate = voices.some((v) => v.voiceId === oldValue)
+        ? oldValue
+        : (voices.some((v) => v.voiceId === defaultVoiceId) ? defaultVoiceId : String(voices[0].voiceId || ''));
+      ttsVoiceSelect.value = candidate;
+      selectedTtsVoiceId = candidate;
+      localStorage.setItem('ttsVoiceId', candidate);
+      ttsVoiceSelect.disabled = false;
+    }
+
+    async function loadTtsVoices() {
+      try {
+        ttsVoiceRefreshBtn.disabled = true;
+        ttsVoiceSelect.disabled = true;
+        ttsVoiceSelect.innerHTML = '<option value="">Загрузка голосов...</option>';
+        const data = await requestTtsVoices();
+        setVoiceOptions(data);
+      } finally {
+        ttsVoiceRefreshBtn.disabled = false;
+      }
+    }
+
+    async function playVoicePreview(voiceId) {
+      if (!voiceId) return;
+      const blob = await requestTtsPreview(voiceId);
+      if (!blob || blob.size === 0) return;
+      if (voicePreviewBlobUrl) {
+        URL.revokeObjectURL(voicePreviewBlobUrl);
+      }
+      voicePreviewBlobUrl = URL.createObjectURL(blob);
+      ttsVoicePreviewPlayer.src = voicePreviewBlobUrl;
+      await ttsVoicePreviewPlayer.play().catch(() => {});
     }
 
     async function requestRecapText(jobId, sessionId) {
@@ -367,7 +487,70 @@
       return data;
     }
 
+    async function requestRecapAudioKaraoke(jobId, sessionId, ttsVoiceId) {
+      const res = await fetch('/api/v1/assistant/recap-audio/karaoke', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          jobId,
+          sessionId,
+          ...(ttsVoiceId ? { ttsVoiceId } : {})
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const details = data?.details ? `\n${data.details}` : '';
+        throw new Error((data?.errorCode || data?.message || 'Ошибка karaoke-озвучки') + details);
+      }
+      return data;
+    }
+
+    function base64ToBlob(base64, mimeType) {
+      const binary = atob(base64);
+      const len = binary.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return new Blob([bytes], { type: mimeType || 'audio/mpeg' });
+    }
+
+    function renderKaraoke(words) {
+      karaokeWords = Array.isArray(words) ? words : [];
+      karaokeOutput.innerHTML = '';
+      if (karaokeWords.length === 0) {
+        karaokeOutput.textContent = 'Нет данных для караоке.';
+        return;
+      }
+      const fragment = document.createDocumentFragment();
+      karaokeWords.forEach((word, index) => {
+        const span = document.createElement('span');
+        span.className = 'karaoke-word';
+        span.dataset.index = String(index);
+        span.dataset.startMs = String(Number(word.startMs || 0));
+        span.dataset.endMs = String(Number(word.endMs || 0));
+        span.textContent = `${word.text || ''} `;
+        fragment.appendChild(span);
+      });
+      karaokeOutput.appendChild(fragment);
+    }
+
+    function syncKaraoke(timeSec) {
+      if (!karaokeWords.length) return;
+      const nowMs = Math.round(Number(timeSec || 0) * 1000);
+      const spans = karaokeOutput.querySelectorAll('.karaoke-word');
+      spans.forEach((span) => {
+        const start = Number(span.dataset.startMs || 0);
+        const end = Number(span.dataset.endMs || 0);
+        const active = nowMs >= start && nowMs <= end;
+        span.classList.toggle('active', active);
+      });
+    }
+
     assistantSessionInput.value = createDefaultSessionId();
+    loadTtsVoices().catch((error) => {
+      setError(error instanceof Error ? error.message : String(error));
+    });
 
     async function pollUntilCompleted(jobId) {
       for (let i = 0; i < 180; i++) {
@@ -518,12 +701,14 @@
       }
       recapAudioPlayer.removeAttribute('src');
       recapAudioPlayer.load();
+      karaokeOutput.textContent = 'Пока нет.';
 
       flashcardsBtn.disabled = true;
       highlightsBtn.disabled = true;
       summaryBtn.disabled = true;
       assistantBtn.disabled = true;
       recapAudioBtn.disabled = true;
+      recapKaraokeBtn.disabled = true;
       currentJobId = null;
 
       const file = fileInput.files && fileInput.files[0];
@@ -565,6 +750,7 @@
         summaryBtn.disabled = false;
         assistantBtn.disabled = false;
         recapAudioBtn.disabled = false;
+        recapKaraokeBtn.disabled = false;
 
         await loadTranscript(jobId);
       } catch (error) {
@@ -692,7 +878,7 @@
         const fullRecapText = String(recapData.recapText || '').trim();
         recapTextOutput.textContent = fullRecapText || 'Нет текста пересказа.';
 
-        const data = await requestRecapAudioStream(currentJobId, sessionId);
+        const data = await requestRecapAudioStream(currentJobId, sessionId, selectedTtsVoiceId);
         if (!fullRecapText && data.recapPreview) {
           recapTextOutput.textContent = `${data.recapPreview}...`;
         }
@@ -716,6 +902,74 @@
           recapAudioBtn.disabled = false;
         }
       }
+    });
+
+    recapKaraokeBtn.addEventListener('click', async () => {
+      setError('');
+      if (!currentJobId) {
+        setError('Сначала загрузите и обработайте аудио');
+        return;
+      }
+      try {
+        recapKaraokeBtn.disabled = true;
+        setStatus('Генерируем караоке-озвучку...');
+        const sessionId = String(assistantSessionInput.value || '').trim() || createDefaultSessionId();
+        assistantSessionInput.value = sessionId;
+
+        const data = await requestRecapAudioKaraoke(currentJobId, sessionId, selectedTtsVoiceId);
+        recapTextOutput.textContent = String(data.recapText || '').trim() || 'Нет текста пересказа.';
+        renderKaraoke(data.words);
+        const audioBase64 = String(data.audioBase64 || '').trim();
+        if (!audioBase64) {
+          throw new Error('Пустой audioBase64 для караоке');
+        }
+        const audioBlob = base64ToBlob(audioBase64, String(data.audioMimeType || 'audio/mpeg'));
+        if (recapAudioBlobUrl) {
+          URL.revokeObjectURL(recapAudioBlobUrl);
+        }
+        recapAudioBlobUrl = URL.createObjectURL(audioBlob);
+        recapAudioPlayer.src = recapAudioBlobUrl;
+        setStatus('COMPLETED');
+      } catch (error) {
+        setStatus('Ошибка');
+        setError(error instanceof Error ? error.message : String(error));
+      } finally {
+        if (currentJobId) {
+          recapKaraokeBtn.disabled = false;
+        }
+      }
+    });
+
+    ttsVoiceRefreshBtn.addEventListener('click', async () => {
+      setError('');
+      try {
+        await loadTtsVoices();
+      } catch (error) {
+        setError(error instanceof Error ? error.message : String(error));
+      }
+    });
+
+    ttsVoiceSelect.addEventListener('change', async () => {
+      setError('');
+      selectedTtsVoiceId = String(ttsVoiceSelect.value || '').trim();
+      localStorage.setItem('ttsVoiceId', selectedTtsVoiceId);
+      if (!selectedTtsVoiceId) return;
+      try {
+        await playVoicePreview(selectedTtsVoiceId);
+      } catch (error) {
+        setError(error instanceof Error ? error.message : String(error));
+      }
+    });
+
+    recapAudioPlayer.addEventListener('timeupdate', () => {
+      syncKaraoke(recapAudioPlayer.currentTime || 0);
+    });
+    recapAudioPlayer.addEventListener('seeked', () => {
+      syncKaraoke(recapAudioPlayer.currentTime || 0);
+    });
+    recapAudioPlayer.addEventListener('ended', () => {
+      const active = karaokeOutput.querySelectorAll('.karaoke-word.active');
+      active.forEach((item) => item.classList.remove('active'));
     });
   </script>
 </body>

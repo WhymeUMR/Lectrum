@@ -30,6 +30,7 @@ import { GenerateFlashcardsRequestSchema } from '../dto/generate-flashcards-requ
 import { GenerateFlashcardsByJobRequestSchema } from '../dto/generate-flashcards-by-job-request.schema';
 import { AssistantAskRequestSchema } from '../dto/assistant-ask-request.schema';
 import { AssistantRecapRequestSchema } from '../dto/assistant-recap-request.schema';
+import { AssistantTtsPreviewRequestSchema } from '../dto/assistant-tts-preview-request.schema';
 import {
   AssistantGenerationError,
   MaterialAssistantService
@@ -564,6 +565,111 @@ export class AppController {
     response.setHeader('x-recap-preview', recapPreview);
     response.status(HttpStatus.OK);
     response.send(ttsResult.audioBuffer);
+  }
+
+  @Get('/api/v1/assistant/tts/voices')
+  async listAssistantTtsVoices() {
+    try {
+      return await this.assistantTts.listVoices('ru');
+    } catch (error) {
+      const details = error instanceof Error ? error.message : String(error);
+      const errorCode =
+        error instanceof AssistantTtsError
+          ? error.code
+          : 'ASSISTANT_TTS_HTTP_ERROR';
+      throw new ServiceUnavailableException({
+        message: 'TTS voices are temporarily unavailable',
+        errorCode,
+        details
+      });
+    }
+  }
+
+  @Post('/api/v1/assistant/tts-preview/stream')
+  async streamAssistantTtsPreview(
+    @Body(new ZodValidationPipe(AssistantTtsPreviewRequestSchema))
+    body: { ttsVoiceId: string; ttsModel?: string; text?: string },
+    @Res() response: Response
+  ) {
+    const previewText = String(body.text || '').trim() ||
+      'Привет. Это пример выбранного голоса. Если звучание подходит, можно использовать его для озвучки пересказа.';
+    let ttsResult: Awaited<ReturnType<AssistantTtsService['synthesizeRaw']>>;
+    try {
+      ttsResult = await this.assistantTts.synthesizeRaw({
+        text: previewText,
+        ttsModel: body.ttsModel,
+        ttsVoiceId: body.ttsVoiceId
+      });
+    } catch (error) {
+      const details = error instanceof Error ? error.message : String(error);
+      const errorCode =
+        error instanceof AssistantTtsError
+          ? error.code
+          : 'ASSISTANT_TTS_HTTP_ERROR';
+      throw new ServiceUnavailableException({
+        message: 'TTS preview is temporarily unavailable',
+        errorCode,
+        details
+      });
+    }
+
+    response.setHeader('content-type', ttsResult.audioMimeType);
+    response.setHeader('x-tts-model', ttsResult.model);
+    response.setHeader('x-tts-chunks', String(ttsResult.chunks));
+    response.status(HttpStatus.OK);
+    response.send(ttsResult.audioBuffer);
+  }
+
+  @Post('/api/v1/assistant/recap-audio/karaoke')
+  async generateAssistantRecapAudioKaraoke(
+    @Body(new ZodValidationPipe(AssistantRecapRequestSchema))
+    body: { jobId: string; sessionId: string; ttsModel?: string; ttsVoiceId?: string }
+  ) {
+    const job = await this.store.repo.getJob(body.jobId);
+    if (!job) {
+      throw new NotFoundException(`Job ${body.jobId} not found`);
+    }
+    if (!job.transcriptText) {
+      throw new ConflictException('Transcript is not ready yet');
+    }
+
+    const recapText = await this.generateRecapTextForSession(
+      body.jobId,
+      body.sessionId,
+      job.transcriptText,
+      job.summaryJson
+    );
+
+    let ttsResult: Awaited<ReturnType<AssistantTtsService['synthesizeWithTimestamps']>>;
+    try {
+      ttsResult = await this.assistantTts.synthesizeWithTimestamps({
+        text: recapText,
+        ttsModel: body.ttsModel,
+        ttsVoiceId: body.ttsVoiceId
+      });
+    } catch (error) {
+      const details = error instanceof Error ? error.message : String(error);
+      const errorCode =
+        error instanceof AssistantTtsError
+          ? error.code
+          : 'ASSISTANT_TTS_HTTP_ERROR';
+      throw new ServiceUnavailableException({
+        message: 'TTS karaoke is temporarily unavailable',
+        errorCode,
+        details
+      });
+    }
+
+    return {
+      jobId: body.jobId,
+      sessionId: body.sessionId,
+      recapText,
+      audioBase64: ttsResult.audioBase64,
+      audioMimeType: ttsResult.audioMimeType,
+      ttsModel: ttsResult.model,
+      chunks: ttsResult.chunks,
+      words: ttsResult.words
+    };
   }
 
   @Post('/api/v1/jobs/:jobId/flashcards')

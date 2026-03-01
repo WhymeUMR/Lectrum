@@ -92,16 +92,8 @@ export class MaterialAssistantService {
       targetLanguage === 'ru'
         ? 'Пиши только по-русски.'
         : 'Write only in English.';
-    let recapText = await this.requestRetell({
-      targetLanguage,
-      profile: recapProfile,
-      langRule,
-      transcriptContext,
-      summaryJson: params.summaryJson,
-      history: params.history,
-      pass: 'draft'
-    });
-    if (isWeakRetell(recapText, recapProfile)) {
+    let recapText = '';
+    try {
       recapText = await this.requestRetell({
         targetLanguage,
         profile: recapProfile,
@@ -109,8 +101,36 @@ export class MaterialAssistantService {
         transcriptContext,
         summaryJson: params.summaryJson,
         history: params.history,
-        pass: 'clarify',
-        previousDraft: recapText
+        pass: 'draft',
+        mode: 'full'
+      });
+      if (isWeakRetell(recapText, recapProfile)) {
+        recapText = await this.requestRetell({
+          targetLanguage,
+          profile: recapProfile,
+          langRule,
+          transcriptContext,
+          summaryJson: params.summaryJson,
+          history: params.history,
+          pass: 'clarify',
+          previousDraft: recapText,
+          mode: 'full'
+        });
+      }
+    } catch (error) {
+      if (!(error instanceof AssistantGenerationError) || !isRetellTimeoutError(error)) {
+        throw error;
+      }
+      const fallbackContext = buildRetellFallbackContext(params.transcriptText);
+      recapText = await this.requestRetell({
+        targetLanguage,
+        profile: recapProfile,
+        langRule,
+        transcriptContext: fallbackContext,
+        summaryJson: params.summaryJson,
+        history: params.history.slice(-3),
+        pass: 'draft',
+        mode: 'fast'
       });
     }
     if (targetLanguage === 'ru' && hasExcessLatinForRu(recapText)) {
@@ -134,12 +154,15 @@ export class MaterialAssistantService {
     history: AssistantHistoryMessage[];
     pass: 'draft' | 'clarify';
     previousDraft?: string;
+    mode?: 'full' | 'fast';
   }): Promise<string> {
-    const timeoutMs = Math.max(25_000, Math.floor(this.env.SUMMARY_AI_TIMEOUT_MS / 2));
+    const timeoutMs = Math.max(45_000, Math.floor(this.env.SUMMARY_AI_TIMEOUT_MS));
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const systemPrompt = buildRetellSystemPrompt(input.pass, input.profile, input.langRule);
+      const systemPrompt = input.mode === 'fast'
+        ? buildRetellFastSystemPrompt(input.langRule)
+        : buildRetellSystemPrompt(input.pass, input.profile, input.langRule);
 
       const response = await fetch(`${this.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1'}/chat/completions`, {
         method: 'POST',
@@ -861,6 +884,37 @@ function buildRetellSystemPrompt(
     'Поля problem/solution/painScale/changelog/evolutionVector/causeEffect/easterEgg/final обязательны и должны быть содержательными (минимум по два предложения в каждом, кроме final).',
     'В recapText собери цельный вариант без служебных меток.'
   ].join('\n');
+}
+
+function buildRetellFastSystemPrompt(langRule: string): string {
+  return [
+    'Ты AI-помощник по материалу.',
+    langRule,
+    'Сделай краткий, понятный и точный пересказ без воды.',
+    'Стиль: один сплошной текст, без таблиц и без списков.',
+    'Сохрани логику: проблема -> решение -> ключевые этапы -> итог.',
+    'Не выдумывай факты.',
+    'Верни только JSON: {"recapText":"..."}'
+  ].join('\n');
+}
+
+function buildRetellFallbackContext(transcriptText: string): {
+  text: string;
+  isTruncated: boolean;
+  originalLength: number;
+  providedLength: number;
+} {
+  const sampled = sampleTranscriptForRelation(String(transcriptText || ''));
+  return {
+    text: sampled,
+    isTruncated: sampled.length < String(transcriptText || '').length,
+    originalLength: String(transcriptText || '').length,
+    providedLength: sampled.length
+  };
+}
+
+function isRetellTimeoutError(error: AssistantGenerationError): boolean {
+  return error.code === 'ASSISTANT_AI_HTTP_ERROR' && /timeout/i.test(String(error.message || ''));
 }
 
 function noContextResponse(question: string): AssistantAnswer {

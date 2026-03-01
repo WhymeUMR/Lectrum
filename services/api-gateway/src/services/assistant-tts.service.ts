@@ -1,6 +1,20 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { APP_ENV, AppEnv } from '@lecture/config';
 
+export type AssistantTtsVoice = {
+  voiceId: string;
+  name: string;
+  language: string;
+  category: string;
+  previewUrl?: string;
+};
+
+export type AssistantTtsWordTiming = {
+  text: string;
+  startMs: number;
+  endMs: number;
+};
+
 export class AssistantTtsError extends Error {
   constructor(
     public readonly code:
@@ -17,6 +31,57 @@ export class AssistantTtsError extends Error {
 @Injectable()
 export class AssistantTtsService {
   constructor(@Inject(APP_ENV) private readonly env: AppEnv) {}
+
+  async listVoices(preferredLanguage: 'ru' | 'en' = 'ru'): Promise<{
+    voices: AssistantTtsVoice[];
+    defaultVoiceId: string;
+    ttsModel: string;
+  }> {
+    const apiKey = readEnvString(this.env, 'ELEVENLABS_API_KEY');
+    const baseUrl = readEnvString(this.env, 'ELEVENLABS_BASE_URL') || 'https://api.elevenlabs.io';
+    const envVoiceId = readEnvString(this.env, 'ELEVENLABS_VOICE_ID');
+    const model = readEnvString(this.env, 'ELEVENLABS_TTS_MODEL') || 'eleven_multilingual_v2';
+    if (!apiKey) {
+      throw new AssistantTtsError(
+        'ASSISTANT_TTS_UNAVAILABLE',
+        'ELEVENLABS_API_KEY is required for TTS'
+      );
+    }
+
+    const raw = await this.fetchVoices(apiKey, baseUrl);
+    const voices = raw
+      .map((voice) => {
+        const labels = voice.labels || {};
+        return {
+          voiceId: String(voice.voice_id || '').trim(),
+          name: String(voice.name || 'Unnamed voice').trim(),
+          language: String(labels.language || labels.locale || 'unknown').trim().toLowerCase(),
+          category: String(voice.category || 'general').trim().toLowerCase(),
+          previewUrl: String(voice.preview_url || '').trim() || undefined
+        } as AssistantTtsVoice;
+      })
+      .filter((item) => item.voiceId)
+      .sort((a, b) => {
+        const aPref = a.language.includes(preferredLanguage) ? 1 : 0;
+        const bPref = b.language.includes(preferredLanguage) ? 1 : 0;
+        if (aPref !== bPref) return bPref - aPref;
+        return a.name.localeCompare(b.name, 'ru');
+      });
+
+    if (voices.length === 0) {
+      throw new AssistantTtsError(
+        'ASSISTANT_TTS_UNAVAILABLE',
+        'No voices available in ElevenLabs account'
+      );
+    }
+
+    const defaultVoiceId =
+      envVoiceId && voices.some((item) => item.voiceId === envVoiceId)
+        ? envVoiceId
+        : voices[0].voiceId;
+
+    return { voices, defaultVoiceId, ttsModel: model };
+  }
 
   async synthesizeRaw(params: { text: string; ttsModel?: string; ttsVoiceId?: string }): Promise<{
     audioBuffer: Buffer;
@@ -89,6 +154,82 @@ export class AssistantTtsService {
     };
   }
 
+  async synthesizeWithTimestamps(params: { text: string; ttsModel?: string; ttsVoiceId?: string }): Promise<{
+    audioBase64: string;
+    audioMimeType: string;
+    model: string;
+    chunks: number;
+    words: AssistantTtsWordTiming[];
+  }> {
+    const apiKey = readEnvString(this.env, 'ELEVENLABS_API_KEY');
+    const modelFromEnv = readEnvString(this.env, 'ELEVENLABS_TTS_MODEL');
+    const voiceFromEnv = readEnvString(this.env, 'ELEVENLABS_VOICE_ID');
+    const baseUrlFromEnv = readEnvString(this.env, 'ELEVENLABS_BASE_URL');
+    const outputFormatFromEnv = readEnvString(this.env, 'ELEVENLABS_OUTPUT_FORMAT');
+
+    if (!apiKey) {
+      throw new AssistantTtsError(
+        'ASSISTANT_TTS_UNAVAILABLE',
+        'ELEVENLABS_API_KEY is required for TTS'
+      );
+    }
+
+    const model = params.ttsModel || modelFromEnv || 'eleven_multilingual_v2';
+    const preferredLanguage = inferTtsLanguage(params.text);
+    const voiceId =
+      params.ttsVoiceId ||
+      voiceFromEnv ||
+      (await this.resolveDefaultVoiceId(apiKey, baseUrlFromEnv || 'https://api.elevenlabs.io', preferredLanguage));
+    const baseUrl = baseUrlFromEnv || 'https://api.elevenlabs.io';
+    const outputFormat = outputFormatFromEnv || 'mp3_44100_128';
+    const timeoutMs = Math.max(20_000, Math.floor(this.env.SUMMARY_AI_TIMEOUT_MS / 2));
+    const chunks = splitTextForTts(String(params.text || ''), 1800);
+
+    if (chunks.length === 0) {
+      throw new AssistantTtsError('ASSISTANT_TTS_INVALID_RESPONSE', 'TTS text is empty');
+    }
+
+    const audioParts: Buffer[] = [];
+    const words: AssistantTtsWordTiming[] = [];
+    let offsetMs = 0;
+    for (const chunk of chunks) {
+      const chunkResult = await this.requestChunkAudioWithTimestamps({
+        baseUrl,
+        apiKey,
+        voiceId,
+        outputFormat,
+        model,
+        text: chunk,
+        timeoutMs
+      });
+      audioParts.push(chunkResult.audioBuffer);
+      for (const word of chunkResult.words) {
+        words.push({
+          text: word.text,
+          startMs: word.startMs + offsetMs,
+          endMs: word.endMs + offsetMs
+        });
+      }
+      const chunkDurationMs = chunkResult.words.length > 0
+        ? Math.max(0, chunkResult.words[chunkResult.words.length - 1].endMs)
+        : 0;
+      offsetMs += chunkDurationMs;
+    }
+
+    const audio = Buffer.concat(audioParts);
+    if (audio.length === 0) {
+      throw new AssistantTtsError('ASSISTANT_TTS_INVALID_RESPONSE', 'Empty TTS audio');
+    }
+
+    return {
+      audioBase64: audio.toString('base64'),
+      audioMimeType: 'audio/mpeg',
+      model,
+      chunks: chunks.length,
+      words
+    };
+  }
+
   private async requestChunkAudio(input: {
     baseUrl: string;
     apiKey: string;
@@ -103,10 +244,7 @@ export class AssistantTtsService {
     const timer = setTimeout(() => controller.abort(), input.timeoutMs);
     try {
       const languageCode = inferTtsLanguage(input.text);
-      const normalizedText =
-        languageCode === 'ru'
-          ? normalizeRuTextForTts(input.text)
-          : input.text;
+      const normalizedText = input.text;
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
@@ -155,11 +293,124 @@ export class AssistantTtsService {
     }
   }
 
+  private async requestChunkAudioWithTimestamps(input: {
+    baseUrl: string;
+    apiKey: string;
+    voiceId: string;
+    outputFormat: string;
+    model: string;
+    text: string;
+    timeoutMs: number;
+  }): Promise<{ audioBuffer: Buffer; words: AssistantTtsWordTiming[] }> {
+    const endpoint = `${input.baseUrl}/v1/text-to-speech/${encodeURIComponent(input.voiceId)}/with-timestamps?output_format=${encodeURIComponent(input.outputFormat)}`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), input.timeoutMs);
+    try {
+      const languageCode = inferTtsLanguage(input.text);
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'xi-api-key': input.apiKey,
+          'content-type': 'application/json',
+          accept: 'application/json'
+        },
+        body: JSON.stringify({
+          text: input.text,
+          model_id: input.model,
+          language_code: languageCode
+        }),
+        signal: controller.signal
+      });
+
+      if (!response.ok) {
+        const message = await safeResponseText(response);
+        throw new AssistantTtsError(
+          'ASSISTANT_TTS_HTTP_ERROR',
+          `ElevenLabs TTS-with-timestamps HTTP ${response.status}: ${message}`
+        );
+      }
+
+      const data = (await response.json()) as {
+        audio_base64?: string;
+        alignment?: {
+          characters?: string[];
+          character_start_times_seconds?: number[];
+          character_end_times_seconds?: number[];
+        };
+        normalized_alignment?: {
+          characters?: string[];
+          character_start_times_seconds?: number[];
+          character_end_times_seconds?: number[];
+        };
+      };
+      const audioBase64 = String(data.audio_base64 || '').trim();
+      if (!audioBase64) {
+        throw new AssistantTtsError(
+          'ASSISTANT_TTS_INVALID_RESPONSE',
+          'ElevenLabs returned empty audio payload'
+        );
+      }
+      const audioBuffer = Buffer.from(audioBase64, 'base64');
+      const alignment = data.alignment || data.normalized_alignment;
+      const words = alignmentToWords(alignment);
+      return { audioBuffer, words };
+    } catch (error) {
+      if (error instanceof AssistantTtsError) {
+        throw error;
+      }
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new AssistantTtsError(
+          'ASSISTANT_TTS_HTTP_ERROR',
+          `ElevenLabs TTS-with-timestamps timeout after ${input.timeoutMs}ms`
+        );
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      throw new AssistantTtsError('ASSISTANT_TTS_HTTP_ERROR', message);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   private async resolveDefaultVoiceId(
     apiKey: string,
     baseUrl: string,
     preferredLanguage: 'ru' | 'en'
   ): Promise<string> {
+    const voices = await this.fetchVoices(apiKey, baseUrl);
+    if (voices.length === 0) {
+      throw new AssistantTtsError(
+        'ASSISTANT_TTS_UNAVAILABLE',
+        'No voices available in ElevenLabs account'
+      );
+    }
+    const preferred = voices.find((voice) => {
+      const labels = voice.labels || {};
+      const language = String(labels.language || labels.locale || '').toLowerCase();
+      return preferredLanguage === 'ru'
+        ? language.includes('ru')
+        : language.includes('en');
+    });
+    const selected = preferred || voices[0];
+    const voiceId = String(selected.voice_id || '').trim();
+    if (!voiceId) {
+      throw new AssistantTtsError(
+        'ASSISTANT_TTS_UNAVAILABLE',
+        'Could not resolve a valid ElevenLabs voice_id'
+      );
+    }
+    return voiceId;
+  }
+
+  private async fetchVoices(
+    apiKey: string,
+    baseUrl: string
+  ): Promise<Array<{
+    voice_id?: string;
+    name?: string;
+    category?: string;
+    labels?: Record<string, unknown>;
+    preview_url?: string;
+  }>> {
     const endpoint = `${baseUrl}/v1/voices`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 12000);
@@ -177,32 +428,15 @@ export class AssistantTtsService {
         );
       }
       const data = (await response.json()) as {
-        voices?: Array<{ voice_id?: string; name?: string; labels?: Record<string, unknown> }>;
+        voices?: Array<{
+          voice_id?: string;
+          name?: string;
+          category?: string;
+          labels?: Record<string, unknown>;
+          preview_url?: string;
+        }>;
       };
-      const voices = Array.isArray(data.voices) ? data.voices : [];
-      if (voices.length === 0) {
-        throw new AssistantTtsError(
-          'ASSISTANT_TTS_UNAVAILABLE',
-          'No voices available in ElevenLabs account'
-        );
-      }
-
-      const preferred = voices.find((voice) => {
-        const labels = voice.labels || {};
-        const language = String(labels.language || labels.locale || '').toLowerCase();
-        return preferredLanguage === 'ru'
-          ? language.includes('ru')
-          : language.includes('en');
-      });
-      const selected = preferred || voices[0];
-      const voiceId = String(selected.voice_id || '').trim();
-      if (!voiceId) {
-        throw new AssistantTtsError(
-          'ASSISTANT_TTS_UNAVAILABLE',
-          'Could not resolve a valid ElevenLabs voice_id'
-        );
-      }
-      return voiceId;
+      return Array.isArray(data.voices) ? data.voices : [];
     } catch (error) {
       if (error instanceof AssistantTtsError) {
         throw error;
@@ -293,8 +527,11 @@ function inferTtsLanguage(text: string): 'ru' | 'en' {
 function normalizeRuTextForTts(text: string): string {
   let out = String(text || '');
 
-  // Keep original structure for ranges; only inflect year numerals.
-  // "1893-1896 годах" -> "тысяча ... третьем - тысяча ... шестом годах"
+  // Strict deterministic mode:
+  // Keep original sentence structure and wording.
+  // Transform only numeric tokens (mostly years/numbers) into pronounceable forms.
+
+  // Year ranges with explicit case suffix.
   out = out.replace(
     /\b(1\d{3}|20\d{2}|21\d{2})\s*[–—-]\s*(1\d{3}|20\d{2}|21\d{2})\s+годах\b/gi,
     (_m, y1Raw, y2Raw) => {
@@ -327,43 +564,32 @@ function normalizeRuTextForTts(text: string): string {
       return `${yearToOrdinalRu(y1, 'nom')} — ${yearToOrdinalRu(y2, 'nom')} год`;
     }
   );
+  // Bare year range without suffix: keep format, read as cardinal years.
+  out = out.replace(
+    /\b(1\d{3}|20\d{2}|21\d{2})\s*[–—-]\s*(1\d{3}|20\d{2}|21\d{2})\b/g,
+    (_m, y1Raw, y2Raw) => `${yearToWordsRu(Number(y1Raw))} — ${yearToWordsRu(Number(y2Raw))}`
+  );
 
-  // "в 1937 году" -> "в тысяча девятьсот тридцать седьмом году"
+  // Single year with case.
   out = out.replace(/\bв\s+(1\d{3}|20\d{2}|21\d{2})\s+году\b/gi, (_m, yRaw) => {
     const year = Number(yRaw);
     return `в ${yearToOrdinalRu(year, 'prep')} году`;
   });
+  out = out.replace(/\b(1\d{3}|20\d{2}|21\d{2})\s+году\b/gi, (_m, yRaw) => {
+    const year = Number(yRaw);
+    return `${yearToOrdinalRu(year, 'prep')} году`;
+  });
+  out = out.replace(/\b(1\d{3}|20\d{2}|21\d{2})\s+года\b/gi, (_m, yRaw) => {
+    const year = Number(yRaw);
+    return `${yearToOrdinalRu(year, 'gen')} года`;
+  });
+  out = out.replace(/\b(1\d{3}|20\d{2}|21\d{2})\s+год\b/gi, (_m, yRaw) => {
+    const year = Number(yRaw);
+    return `${yearToOrdinalRu(year, 'nom')} год`;
+  });
 
   // "в 1937" -> "в ... году" (only when year word is absent).
   out = out.replace(/\bв\s+(1\d{3}|20\d{2}|21\d{2})\b(?!\s+г(?:\.|од))/gi, (_m, yRaw) => `в ${yearToOrdinalRu(Number(yRaw), 'prep')} году`);
-
-  // 12:30 -> 12 часов 30 минут
-  out = out.replace(/\b([01]?\d|2[0-3]):([0-5]\d)\b/g, (_match, hRaw, mRaw) => {
-    const h = Number(hRaw);
-    const m = Number(mRaw);
-    return `${numberToWordsRu(h)} ${pluralRu(h, 'час', 'часа', 'часов')} ${numberToWordsRu(m)} ${pluralRu(m, 'минута', 'минуты', 'минут')}`;
-  });
-
-  // 02.08.2024 / 02-08-2024 / 02/08/2024
-  out = out.replace(/\b(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})\b/g, (_m, dRaw, mRaw, yRaw) => {
-    const day = Number(dRaw);
-    const month = Number(mRaw);
-    let year = Number(yRaw);
-    if (!isValidDateParts(day, month)) return `${dRaw}.${mRaw}.${yRaw}`;
-    if (yRaw.length === 2) {
-      year += year >= 70 ? 1900 : 2000;
-    }
-    const monthWord = monthGenitiveRu(month);
-    return `${day} ${monthWord} ${yearToWordsRu(year)} года`;
-  });
-
-  // 02.08 / 02-08 / 02/08
-  out = out.replace(/\b(\d{1,2})[./-](\d{1,2})\b/g, (_m, dRaw, mRaw) => {
-    const day = Number(dRaw);
-    const month = Number(mRaw);
-    if (!isValidDateParts(day, month)) return `${dRaw}.${mRaw}`;
-    return `${day} ${monthGenitiveRu(month)}`;
-  });
 
   // 2024 г. / 2024 год / 2024 года / 2024 году
   out = out.replace(/\b(1\d{3}|20\d{2}|21\d{2})\s*(г\.?|год(?:а|у|ом)?)\b/gi, (_m, yRaw, suffixRaw) => {
@@ -382,15 +608,21 @@ function normalizeRuTextForTts(text: string): string {
     return `${yearToOrdinalRu(year, 'nom')} год`;
   });
 
-  // Standalone year in brackets/phrases: "(1937)" -> "(... год)"
+  // Standalone year in brackets/phrases.
   out = out.replace(/\((1\d{3}|20\d{2}|21\d{2})\)/g, (_m, yRaw) => {
     const year = Number(yRaw);
     return `(${yearToOrdinalRu(year, 'nom')} год)`;
   });
 
-  // Do not rewrite every number: keep UI/text parity high and avoid semantic drift.
-  // Only remaining plain 4-digit years are converted.
+  // Remaining plain 4-digit years (not bound to "год*").
   out = out.replace(/\b(1\d{3}|20\d{2}|21\d{2})\b/g, (raw) => yearToWordsRu(Number(raw)));
+
+  // Other standalone numbers: cardinal words, without changing phrasing.
+  out = out.replace(/\b\d{2,6}\b/g, (raw) => {
+    const value = Number(raw);
+    if (!Number.isFinite(value)) return raw;
+    return numberToWordsRu(value);
+  });
 
   // Defensive cleanup for duplicated grammatical suffixes produced by mixed templates.
   out = out.replace(/\bгоду\s+году\b/gi, 'году');
@@ -402,10 +634,73 @@ function normalizeRuTextForTts(text: string): string {
   out = out.replace(/\bгод\s+году\b/gi, 'году');
 
   // Hard post-fix for ordinal adjective + "год*" agreement.
-  // This is intentionally strict for TTS stability: we prefer deterministic grammar over model guessing.
   out = fixOrdinalYearAgreementRu(out);
 
   return out.replace(/\s+/g, ' ').trim();
+}
+
+function alignmentToWords(
+  alignment?: {
+    characters?: string[];
+    character_start_times_seconds?: number[];
+    character_end_times_seconds?: number[];
+  }
+): AssistantTtsWordTiming[] {
+  if (!alignment) return [];
+  const chars = Array.isArray(alignment.characters) ? alignment.characters : [];
+  const starts = Array.isArray(alignment.character_start_times_seconds)
+    ? alignment.character_start_times_seconds
+    : [];
+  const ends = Array.isArray(alignment.character_end_times_seconds)
+    ? alignment.character_end_times_seconds
+    : [];
+  const len = Math.min(chars.length, starts.length, ends.length);
+  if (len === 0) return [];
+
+  const words: AssistantTtsWordTiming[] = [];
+  let currentText = '';
+  let currentStart = 0;
+  let currentEnd = 0;
+  let inWord = false;
+
+  for (let i = 0; i < len; i++) {
+    const ch = String(chars[i] ?? '');
+    const isSpace = /\s/.test(ch);
+    const s = Math.max(0, Number(starts[i] ?? 0));
+    const e = Math.max(s, Number(ends[i] ?? s));
+
+    if (isSpace) {
+      if (inWord && currentText.trim()) {
+        words.push({
+          text: currentText.trim(),
+          startMs: Math.round(currentStart * 1000),
+          endMs: Math.round(currentEnd * 1000)
+        });
+      }
+      currentText = '';
+      inWord = false;
+      continue;
+    }
+
+    if (!inWord) {
+      inWord = true;
+      currentText = ch;
+      currentStart = s;
+      currentEnd = e;
+      continue;
+    }
+    currentText += ch;
+    currentEnd = e;
+  }
+
+  if (inWord && currentText.trim()) {
+    words.push({
+      text: currentText.trim(),
+      startMs: Math.round(currentStart * 1000),
+      endMs: Math.round(currentEnd * 1000)
+    });
+  }
+  return words;
 }
 
 function fixOrdinalYearAgreementRu(text: string): string {

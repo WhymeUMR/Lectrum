@@ -31,6 +31,7 @@ const generate_flashcards_request_schema_1 = require("../dto/generate-flashcards
 const generate_flashcards_by_job_request_schema_1 = require("../dto/generate-flashcards-by-job-request.schema");
 const assistant_ask_request_schema_1 = require("../dto/assistant-ask-request.schema");
 const assistant_recap_request_schema_1 = require("../dto/assistant-recap-request.schema");
+const assistant_tts_preview_request_schema_1 = require("../dto/assistant-tts-preview-request.schema");
 const material_assistant_service_1 = require("../services/material-assistant.service");
 const assistant_tts_service_1 = require("../services/assistant-tts.service");
 let AppController = class AppController {
@@ -439,6 +440,89 @@ let AppController = class AppController {
         response.status(common_1.HttpStatus.OK);
         response.send(ttsResult.audioBuffer);
     }
+    async listAssistantTtsVoices() {
+        try {
+            return await this.assistantTts.listVoices('ru');
+        }
+        catch (error) {
+            const details = error instanceof Error ? error.message : String(error);
+            const errorCode = error instanceof assistant_tts_service_1.AssistantTtsError
+                ? error.code
+                : 'ASSISTANT_TTS_HTTP_ERROR';
+            throw new common_1.ServiceUnavailableException({
+                message: 'TTS voices are temporarily unavailable',
+                errorCode,
+                details
+            });
+        }
+    }
+    async streamAssistantTtsPreview(body, response) {
+        const previewText = String(body.text || '').trim() ||
+            'Привет. Это пример выбранного голоса. Если звучание подходит, можно использовать его для озвучки пересказа.';
+        let ttsResult;
+        try {
+            ttsResult = await this.assistantTts.synthesizeRaw({
+                text: previewText,
+                ttsModel: body.ttsModel,
+                ttsVoiceId: body.ttsVoiceId
+            });
+        }
+        catch (error) {
+            const details = error instanceof Error ? error.message : String(error);
+            const errorCode = error instanceof assistant_tts_service_1.AssistantTtsError
+                ? error.code
+                : 'ASSISTANT_TTS_HTTP_ERROR';
+            throw new common_1.ServiceUnavailableException({
+                message: 'TTS preview is temporarily unavailable',
+                errorCode,
+                details
+            });
+        }
+        response.setHeader('content-type', ttsResult.audioMimeType);
+        response.setHeader('x-tts-model', ttsResult.model);
+        response.setHeader('x-tts-chunks', String(ttsResult.chunks));
+        response.status(common_1.HttpStatus.OK);
+        response.send(ttsResult.audioBuffer);
+    }
+    async generateAssistantRecapAudioKaraoke(body) {
+        const job = await this.store.repo.getJob(body.jobId);
+        if (!job) {
+            throw new common_1.NotFoundException(`Job ${body.jobId} not found`);
+        }
+        if (!job.transcriptText) {
+            throw new common_1.ConflictException('Transcript is not ready yet');
+        }
+        const recapText = await this.generateRecapTextForSession(body.jobId, body.sessionId, job.transcriptText, job.summaryJson);
+        let ttsResult;
+        try {
+            ttsResult = await this.assistantTts.synthesizeWithTimestamps({
+                text: recapText,
+                ttsModel: body.ttsModel,
+                ttsVoiceId: body.ttsVoiceId
+            });
+        }
+        catch (error) {
+            const details = error instanceof Error ? error.message : String(error);
+            const errorCode = error instanceof assistant_tts_service_1.AssistantTtsError
+                ? error.code
+                : 'ASSISTANT_TTS_HTTP_ERROR';
+            throw new common_1.ServiceUnavailableException({
+                message: 'TTS karaoke is temporarily unavailable',
+                errorCode,
+                details
+            });
+        }
+        return {
+            jobId: body.jobId,
+            sessionId: body.sessionId,
+            recapText,
+            audioBase64: ttsResult.audioBase64,
+            audioMimeType: ttsResult.audioMimeType,
+            ttsModel: ttsResult.model,
+            chunks: ttsResult.chunks,
+            words: ttsResult.words
+        };
+    }
     async generateFlashcards(jobId, body, response) {
         const result = await this.requestFlashcardsGeneration(jobId, body.count);
         response.status(common_1.HttpStatus.ACCEPTED);
@@ -704,6 +788,27 @@ __decorate([
     __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
 ], AppController.prototype, "streamAssistantRecapAudio", null);
+__decorate([
+    (0, common_1.Get)('/api/v1/assistant/tts/voices'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", Promise)
+], AppController.prototype, "listAssistantTtsVoices", null);
+__decorate([
+    (0, common_1.Post)('/api/v1/assistant/tts-preview/stream'),
+    __param(0, (0, common_1.Body)(new zod_validation_pipe_1.ZodValidationPipe(assistant_tts_preview_request_schema_1.AssistantTtsPreviewRequestSchema))),
+    __param(1, (0, common_1.Res)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", Promise)
+], AppController.prototype, "streamAssistantTtsPreview", null);
+__decorate([
+    (0, common_1.Post)('/api/v1/assistant/recap-audio/karaoke'),
+    __param(0, (0, common_1.Body)(new zod_validation_pipe_1.ZodValidationPipe(assistant_recap_request_schema_1.AssistantRecapRequestSchema))),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], AppController.prototype, "generateAssistantRecapAudioKaraoke", null);
 __decorate([
     (0, common_1.Post)('/api/v1/jobs/:jobId/flashcards'),
     __param(0, (0, common_1.Param)('jobId')),

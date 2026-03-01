@@ -227,6 +227,31 @@ export declare class AppController {
         ttsModel?: string;
         ttsVoiceId?: string;
     }, response: Response): Promise<void>;
+    listAssistantTtsVoices(): Promise<{
+        voices: import("../services/assistant-tts.service").AssistantTtsVoice[];
+        defaultVoiceId: string;
+        ttsModel: string;
+    }>;
+    streamAssistantTtsPreview(body: {
+        ttsVoiceId: string;
+        ttsModel?: string;
+        text?: string;
+    }, response: Response): Promise<void>;
+    generateAssistantRecapAudioKaraoke(body: {
+        jobId: string;
+        sessionId: string;
+        ttsModel?: string;
+        ttsVoiceId?: string;
+    }): Promise<{
+        jobId: string;
+        sessionId: string;
+        recapText: string;
+        audioBase64: string;
+        audioMimeType: string;
+        ttsModel: string;
+        chunks: number;
+        words: import("../services/assistant-tts.service").AssistantTtsWordTiming[];
+    }>;
     generateFlashcards(jobId: string, body: {
         count: number;
     }, response: Response): Promise<{
