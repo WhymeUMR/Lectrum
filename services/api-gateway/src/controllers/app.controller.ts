@@ -29,10 +29,12 @@ import { ZodValidationPipe } from '../pipes/zod-validation.pipe';
 import { GenerateFlashcardsRequestSchema } from '../dto/generate-flashcards-request.schema';
 import { GenerateFlashcardsByJobRequestSchema } from '../dto/generate-flashcards-by-job-request.schema';
 import { AssistantAskRequestSchema } from '../dto/assistant-ask-request.schema';
+import { AssistantRecapRequestSchema } from '../dto/assistant-recap-request.schema';
 import {
   AssistantGenerationError,
   MaterialAssistantService
 } from '../services/material-assistant.service';
+import { AssistantTtsError, AssistantTtsService } from '../services/assistant-tts.service';
 
 @Controller()
 export class AppController {
@@ -40,7 +42,8 @@ export class AppController {
     @Inject(APP_ENV) private readonly env: AppEnv,
     private readonly queueService: QueueService,
     private readonly store: JobStoreService,
-    private readonly materialAssistant: MaterialAssistantService
+    private readonly materialAssistant: MaterialAssistantService,
+    private readonly assistantTts: AssistantTtsService
   ) {}
 
   @Get('/health')
@@ -411,6 +414,123 @@ export class AppController {
     };
   }
 
+  @Post('/api/v1/assistant/recap-audio')
+  async generateAssistantRecapAudio(
+    @Body(new ZodValidationPipe(AssistantRecapRequestSchema))
+    body: { jobId: string; sessionId: string; ttsModel?: string; ttsVoiceId?: string }
+  ) {
+    const job = await this.store.repo.getJob(body.jobId);
+    if (!job) {
+      throw new NotFoundException(`Job ${body.jobId} not found`);
+    }
+    if (!job.transcriptText) {
+      throw new ConflictException('Transcript is not ready yet');
+    }
+
+    const recapText = await this.generateRecapTextForSession(
+      body.jobId,
+      body.sessionId,
+      job.transcriptText,
+      job.summaryJson
+    );
+
+    let ttsResult: Awaited<ReturnType<AssistantTtsService['synthesize']>>;
+    try {
+      ttsResult = await this.assistantTts.synthesize({
+        text: recapText,
+        ttsModel: body.ttsModel,
+        ttsVoiceId: body.ttsVoiceId
+      });
+    } catch (error) {
+      const details = error instanceof Error ? error.message : String(error);
+      const errorCode =
+        error instanceof AssistantTtsError
+          ? error.code
+          : 'ASSISTANT_TTS_HTTP_ERROR';
+      throw new ServiceUnavailableException({
+        message: 'TTS provider is temporarily unavailable',
+        errorCode,
+        details
+      });
+    }
+
+    await this.store.repo.appendAssistantMessage(
+      body.jobId,
+      body.sessionId,
+      'assistant',
+      recapText
+    );
+    await this.store.repo.trimAssistantHistory(body.jobId, body.sessionId, 16);
+
+    return {
+      jobId: body.jobId,
+      sessionId: body.sessionId,
+      recapText,
+      audioBase64: ttsResult.audioBase64,
+      audioMimeType: ttsResult.audioMimeType,
+      ttsModel: ttsResult.model,
+      chunks: ttsResult.chunks
+    };
+  }
+
+  @Post('/api/v1/assistant/recap-audio/stream')
+  async streamAssistantRecapAudio(
+    @Body(new ZodValidationPipe(AssistantRecapRequestSchema))
+    body: { jobId: string; sessionId: string; ttsModel?: string; ttsVoiceId?: string },
+    @Res() response: Response
+  ) {
+    const job = await this.store.repo.getJob(body.jobId);
+    if (!job) {
+      throw new NotFoundException(`Job ${body.jobId} not found`);
+    }
+    if (!job.transcriptText) {
+      throw new ConflictException('Transcript is not ready yet');
+    }
+
+    const recapText = await this.generateRecapTextForSession(
+      body.jobId,
+      body.sessionId,
+      job.transcriptText,
+      job.summaryJson
+    );
+
+    let ttsResult: Awaited<ReturnType<AssistantTtsService['synthesizeRaw']>>;
+    try {
+      ttsResult = await this.assistantTts.synthesizeRaw({
+        text: recapText,
+        ttsModel: body.ttsModel,
+        ttsVoiceId: body.ttsVoiceId
+      });
+    } catch (error) {
+      const details = error instanceof Error ? error.message : String(error);
+      const errorCode =
+        error instanceof AssistantTtsError
+          ? error.code
+          : 'ASSISTANT_TTS_HTTP_ERROR';
+      throw new ServiceUnavailableException({
+        message: 'TTS provider is temporarily unavailable',
+        errorCode,
+        details
+      });
+    }
+
+    await this.store.repo.appendAssistantMessage(
+      body.jobId,
+      body.sessionId,
+      'assistant',
+      recapText
+    );
+    await this.store.repo.trimAssistantHistory(body.jobId, body.sessionId, 16);
+
+    const recapPreview = encodeURIComponent(recapText.slice(0, 320));
+    response.setHeader('content-type', ttsResult.audioMimeType);
+    response.setHeader('x-tts-model', ttsResult.model);
+    response.setHeader('x-tts-chunks', String(ttsResult.chunks));
+    response.setHeader('x-recap-preview', recapPreview);
+    response.status(HttpStatus.OK);
+    response.send(ttsResult.audioBuffer);
+  }
+
   @Post('/api/v1/jobs/:jobId/flashcards')
   async generateFlashcards(
     @Param('jobId') jobId: string,
@@ -465,6 +585,41 @@ export class AppController {
       status: 'GENERATING_FLASHCARDS',
       requestedCards: count
     };
+  }
+
+  private async generateRecapTextForSession(
+    jobId: string,
+    sessionId: string,
+    transcriptText: string,
+    summaryJson: string | null
+  ): Promise<string> {
+    const history = await this.store.repo.getAssistantHistory(jobId, sessionId, 12);
+    await this.store.repo.appendAssistantMessage(
+      jobId,
+      sessionId,
+      'user',
+      'Сделай полный пересказ лекции и озвучь его'
+    );
+
+    try {
+      const recap = await this.materialAssistant.retellTranscript({
+        transcriptText,
+        summaryJson,
+        history
+      });
+      return recap.recapText;
+    } catch (error) {
+      const details = error instanceof Error ? error.message : String(error);
+      const errorCode =
+        error instanceof AssistantGenerationError
+          ? error.code
+          : 'ASSISTANT_AI_HTTP_ERROR';
+      throw new ServiceUnavailableException({
+        message: 'Assistant provider is temporarily unavailable',
+        errorCode,
+        details
+      });
+    }
   }
 
   private async requestHighlightsGeneration(jobId: string) {

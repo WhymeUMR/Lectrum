@@ -3,12 +3,14 @@ import { Response } from 'express';
 import { QueueService } from '../services/queue.service';
 import { JobStoreService } from '../services/job-store.service';
 import { MaterialAssistantService } from '../services/material-assistant.service';
+import { AssistantTtsService } from '../services/assistant-tts.service';
 export declare class AppController {
     private readonly env;
     private readonly queueService;
     private readonly store;
     private readonly materialAssistant;
-    constructor(env: AppEnv, queueService: QueueService, store: JobStoreService, materialAssistant: MaterialAssistantService);
+    private readonly assistantTts;
+    constructor(env: AppEnv, queueService: QueueService, store: JobStoreService, materialAssistant: MaterialAssistantService, assistantTts: AssistantTtsService);
     health(): {
         status: string;
         service: string;
@@ -197,6 +199,26 @@ export declare class AppController {
         reason: "ok" | "web_fallback" | "no_context";
         refused: boolean;
     }>;
+    generateAssistantRecapAudio(body: {
+        jobId: string;
+        sessionId: string;
+        ttsModel?: string;
+        ttsVoiceId?: string;
+    }): Promise<{
+        jobId: string;
+        sessionId: string;
+        recapText: string;
+        audioBase64: string;
+        audioMimeType: string;
+        ttsModel: string;
+        chunks: number;
+    }>;
+    streamAssistantRecapAudio(body: {
+        jobId: string;
+        sessionId: string;
+        ttsModel?: string;
+        ttsVoiceId?: string;
+    }, response: Response): Promise<void>;
     generateFlashcards(jobId: string, body: {
         count: number;
     }, response: Response): Promise<{
@@ -213,6 +235,7 @@ export declare class AppController {
         requestedCards: number;
     }>;
     private requestFlashcardsGeneration;
+    private generateRecapTextForSession;
     private requestHighlightsGeneration;
     private requestSummaryGeneration;
     private statusToProgress;

@@ -13,6 +13,7 @@ const app_controller_1 = require("./controllers/app.controller");
 const queue_service_1 = require("./services/queue.service");
 const job_store_service_1 = require("./services/job-store.service");
 const material_assistant_service_1 = require("./services/material-assistant.service");
+const assistant_tts_service_1 = require("./services/assistant-tts.service");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -20,7 +21,7 @@ exports.AppModule = AppModule = __decorate([
     (0, common_1.Module)({
         imports: [config_1.SharedConfigModule.forRoot('api-gateway')],
         controllers: [app_controller_1.AppController],
-        providers: [queue_service_1.QueueService, job_store_service_1.JobStoreService, material_assistant_service_1.MaterialAssistantService]
+        providers: [queue_service_1.QueueService, job_store_service_1.JobStoreService, material_assistant_service_1.MaterialAssistantService, assistant_tts_service_1.AssistantTtsService]
     })
 ], AppModule);
 //# sourceMappingURL=app.module.js.map

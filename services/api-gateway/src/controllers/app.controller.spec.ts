@@ -10,6 +10,7 @@ describe('AppController', () => {
     let mockJobStore: any;
     let mockEnv: any;
     let mockAssistantService: any;
+    let mockAssistantTtsService: any;
 
     mockEnv = {
         SERVICE_NAME: 'api-gateway',
@@ -33,6 +34,18 @@ describe('AppController', () => {
             webSources: [],
             confidence: 0.86,
             refused: false
+        }),
+        retellTranscript: async () => ({
+            recapText: 'Это полный пересказ лекции по ключевым смысловым блокам.'
+        })
+    };
+
+    mockAssistantTtsService = {
+        synthesize: async () => ({
+            audioBase64: Buffer.from('fake-mp3').toString('base64'),
+            audioMimeType: 'audio/mpeg',
+            model: 'aura-2-thalia-en',
+            chunks: 1
         })
     };
 
@@ -69,7 +82,13 @@ describe('AppController', () => {
         }
     };
 
-    controller = new AppController(mockEnv, mockQueueService, mockJobStore, mockAssistantService);
+    controller = new AppController(
+        mockEnv,
+        mockQueueService,
+        mockJobStore,
+        mockAssistantService,
+        mockAssistantTtsService
+    );
 
     test('health endpoint returns config injected', () => {
         const res = controller.health();
@@ -356,5 +375,24 @@ describe('AppController', () => {
             }),
             (e) => e instanceof ServiceUnavailableException
         );
+    });
+
+    test('generateAssistantRecapAudio returns recap text and audio payload', async () => {
+        mockJobStore.repo.getJob = async () => ({
+            jobId: '123',
+            lectureId: 'l-123',
+            status: 'COMPLETED',
+            transcriptText: 'text',
+            transcriptJson: JSON.stringify({ duration: 10, text: 'text', segments: [{ start: 0, end: 1, text: 'text' }] }),
+            summaryJson: null
+        });
+        const res = await controller.generateAssistantRecapAudio({
+            jobId: '123',
+            sessionId: 'session-tts',
+            ttsModel: 'aura-2-thalia-en'
+        });
+        assert.equal(typeof res.recapText, 'string');
+        assert.equal(typeof res.audioBase64, 'string');
+        assert.equal(res.audioMimeType, 'audio/mpeg');
     });
 });

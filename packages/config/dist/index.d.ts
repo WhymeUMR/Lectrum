@@ -27,6 +27,11 @@ declare const EnvSchema: z.ZodObject<{
     DEEPGRAM_API_KEY: z.ZodEffects<z.ZodOptional<z.ZodString>, string | undefined, unknown>;
     DEEPGRAM_BASE_URL: z.ZodEffects<z.ZodOptional<z.ZodString>, string | undefined, unknown>;
     DEEPGRAM_MODEL: z.ZodEffects<z.ZodOptional<z.ZodString>, string | undefined, unknown>;
+    ELEVENLABS_API_KEY: z.ZodEffects<z.ZodOptional<z.ZodString>, string | undefined, unknown>;
+    ELEVENLABS_BASE_URL: z.ZodEffects<z.ZodOptional<z.ZodString>, string | undefined, unknown>;
+    ELEVENLABS_TTS_MODEL: z.ZodDefault<z.ZodString>;
+    ELEVENLABS_VOICE_ID: z.ZodEffects<z.ZodOptional<z.ZodString>, string | undefined, unknown>;
+    ELEVENLABS_OUTPUT_FORMAT: z.ZodDefault<z.ZodString>;
     DATABASE_URL: z.ZodOptional<z.ZodString>;
     ARTIFACTS_DIR: z.ZodDefault<z.ZodString>;
     OPENAI_API_KEY: z.ZodEffects<z.ZodOptional<z.ZodString>, string | undefined, unknown>;
@@ -56,6 +61,8 @@ declare const EnvSchema: z.ZodObject<{
     TRANSCRIPTION_PROVIDER_RETRY_ATTEMPTS: number;
     TRANSCRIPTION_PROVIDER_RETRY_DELAY_MS: number;
     TRANSCRIPTION_OPENAI_MODEL: string;
+    ELEVENLABS_TTS_MODEL: string;
+    ELEVENLABS_OUTPUT_FORMAT: string;
     ARTIFACTS_DIR: string;
     SUMMARY_AI_TIMEOUT_MS: number;
     TRANSCRIPTION_OPENAI_API_KEY?: string | undefined;
@@ -63,6 +70,9 @@ declare const EnvSchema: z.ZodObject<{
     DEEPGRAM_API_KEY?: string | undefined;
     DEEPGRAM_BASE_URL?: string | undefined;
     DEEPGRAM_MODEL?: string | undefined;
+    ELEVENLABS_API_KEY?: string | undefined;
+    ELEVENLABS_BASE_URL?: string | undefined;
+    ELEVENLABS_VOICE_ID?: string | undefined;
     DATABASE_URL?: string | undefined;
     OPENAI_API_KEY?: string | undefined;
     OPENAI_FALLBACK_API_KEY?: string | undefined;
@@ -95,6 +105,11 @@ declare const EnvSchema: z.ZodObject<{
     DEEPGRAM_API_KEY?: unknown;
     DEEPGRAM_BASE_URL?: unknown;
     DEEPGRAM_MODEL?: unknown;
+    ELEVENLABS_API_KEY?: unknown;
+    ELEVENLABS_BASE_URL?: unknown;
+    ELEVENLABS_TTS_MODEL?: string | undefined;
+    ELEVENLABS_VOICE_ID?: unknown;
+    ELEVENLABS_OUTPUT_FORMAT?: string | undefined;
     DATABASE_URL?: string | undefined;
     ARTIFACTS_DIR?: string | undefined;
     OPENAI_API_KEY?: unknown;

@@ -33,11 +33,20 @@ async function proxyApiRequest(req, res, url) {
     body: bodyBuffer
   });
 
-  const responseText = await upstreamRes.text();
-  res.writeHead(upstreamRes.status, {
-    'content-type': upstreamRes.headers.get('content-type') || 'application/json; charset=utf-8'
-  });
-  res.end(responseText);
+  const responseBody = Buffer.from(await upstreamRes.arrayBuffer());
+  const responseHeaders = {
+    'content-type': upstreamRes.headers.get('content-type') || 'application/octet-stream',
+    'content-length': String(responseBody.length)
+  };
+  const ttsModel = upstreamRes.headers.get('x-tts-model');
+  const ttsChunks = upstreamRes.headers.get('x-tts-chunks');
+  const recapPreview = upstreamRes.headers.get('x-recap-preview');
+  if (ttsModel) responseHeaders['x-tts-model'] = ttsModel;
+  if (ttsChunks) responseHeaders['x-tts-chunks'] = ttsChunks;
+  if (recapPreview) responseHeaders['x-recap-preview'] = recapPreview;
+
+  res.writeHead(upstreamRes.status, responseHeaders);
+  res.end(responseBody);
 }
 
 async function handler(req, res) {

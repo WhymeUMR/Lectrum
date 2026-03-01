@@ -28,6 +28,15 @@ export declare class AssistantGenerationError extends Error {
 export declare class MaterialAssistantService {
     private readonly env;
     constructor(env: AppEnv);
+    retellTranscript(params: {
+        transcriptText: string;
+        summaryJson: string | null;
+        history: AssistantHistoryMessage[];
+    }): Promise<{
+        recapText: string;
+    }>;
+    private requestRetell;
+    private rewriteToRussianText;
     ask(params: {
         question: string;
         transcriptText: string;

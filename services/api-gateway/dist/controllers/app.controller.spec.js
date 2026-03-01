@@ -14,6 +14,7 @@ const material_assistant_service_1 = require("../services/material-assistant.ser
     let mockJobStore;
     let mockEnv;
     let mockAssistantService;
+    let mockAssistantTtsService;
     mockEnv = {
         SERVICE_NAME: 'api-gateway',
         APP_ENV: 'test',
@@ -34,6 +35,17 @@ const material_assistant_service_1 = require("../services/material-assistant.ser
             webSources: [],
             confidence: 0.86,
             refused: false
+        }),
+        retellTranscript: async () => ({
+            recapText: 'Это полный пересказ лекции по ключевым смысловым блокам.'
+        })
+    };
+    mockAssistantTtsService = {
+        synthesize: async () => ({
+            audioBase64: Buffer.from('fake-mp3').toString('base64'),
+            audioMimeType: 'audio/mpeg',
+            model: 'aura-2-thalia-en',
+            chunks: 1
         })
     };
     mockJobStore = {
@@ -71,7 +83,7 @@ const material_assistant_service_1 = require("../services/material-assistant.ser
             }
         }
     };
-    controller = new app_controller_1.AppController(mockEnv, mockQueueService, mockJobStore, mockAssistantService);
+    controller = new app_controller_1.AppController(mockEnv, mockQueueService, mockJobStore, mockAssistantService, mockAssistantTtsService);
     (0, node_test_1.test)('health endpoint returns config injected', () => {
         const res = controller.health();
         strict_1.default.strictEqual(res.status, 'ok');
@@ -306,6 +318,24 @@ const material_assistant_service_1 = require("../services/material-assistant.ser
             sessionId: 'session-timeout',
             question: 'Скажи итог'
         }), (e) => e instanceof common_1.ServiceUnavailableException);
+    });
+    (0, node_test_1.test)('generateAssistantRecapAudio returns recap text and audio payload', async () => {
+        mockJobStore.repo.getJob = async () => ({
+            jobId: '123',
+            lectureId: 'l-123',
+            status: 'COMPLETED',
+            transcriptText: 'text',
+            transcriptJson: JSON.stringify({ duration: 10, text: 'text', segments: [{ start: 0, end: 1, text: 'text' }] }),
+            summaryJson: null
+        });
+        const res = await controller.generateAssistantRecapAudio({
+            jobId: '123',
+            sessionId: 'session-tts',
+            ttsModel: 'aura-2-thalia-en'
+        });
+        strict_1.default.equal(typeof res.recapText, 'string');
+        strict_1.default.equal(typeof res.audioBase64, 'string');
+        strict_1.default.equal(res.audioMimeType, 'audio/mpeg');
     });
 });
 //# sourceMappingURL=app.controller.spec.js.map

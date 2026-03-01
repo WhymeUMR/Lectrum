@@ -40,6 +40,178 @@ let MaterialAssistantService = class MaterialAssistantService {
     constructor(env) {
         this.env = env;
     }
+    async retellTranscript(params) {
+        if (!this.env.OPENAI_API_KEY) {
+            throw new AssistantGenerationError('ASSISTANT_AI_HTTP_ERROR', 'OPENAI_API_KEY is required for transcript retelling');
+        }
+        const transcriptContext = buildTranscriptPromptContext(params.transcriptText);
+        const targetLanguage = inferTextLanguage(params.transcriptText);
+        const langRule = targetLanguage === 'ru'
+            ? 'Пиши только по-русски.'
+            : 'Write only in English.';
+        let recapText = await this.requestRetell({
+            targetLanguage,
+            langRule,
+            transcriptContext,
+            summaryJson: params.summaryJson,
+            history: params.history,
+            pass: 'draft'
+        });
+        if (isWeakRetell(recapText)) {
+            recapText = await this.requestRetell({
+                targetLanguage,
+                langRule,
+                transcriptContext,
+                summaryJson: params.summaryJson,
+                history: params.history,
+                pass: 'clarify',
+                previousDraft: recapText
+            });
+        }
+        if (targetLanguage === 'ru' && hasExcessLatinForRu(recapText)) {
+            recapText = await this.rewriteToRussianText(recapText);
+        }
+        if (!recapText) {
+            throw new AssistantGenerationError('ASSISTANT_AI_INVALID_RESPONSE', 'Retelling response has no recapText');
+        }
+        return { recapText };
+    }
+    async requestRetell(input) {
+        const timeoutMs = Math.max(25_000, Math.floor(this.env.SUMMARY_AI_TIMEOUT_MS / 2));
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            const systemPrompt = input.pass === 'draft'
+                ? [
+                    'Ты AI-помощник по материалу лекции.',
+                    ASSISTANT_VOICE_GUIDE,
+                    ASSISTANT_GROUNDING_GUIDE,
+                    input.langRule,
+                    'Сделай понятный пересказ для человека, который НЕ слушал лекцию.',
+                    'Структура строго из 3 абзацев: 1) кто/о чем лекция; 2) ключевые идеи и причинно-следственные связи; 3) итог и зачем это важно.',
+                    'Пиши ясно, конкретно, без канцелярита и общих фраз.',
+                    'Не цитируй длинными кусками, пересказывай своими словами.',
+                    'Не добавляй информации, которой нет в транскрипте.',
+                    'Не используй markdown, списки и служебные заголовки.',
+                    'Если есть самокоррекции и оговорки, бери финальную корректную формулировку.',
+                    'Верни только JSON-объект: {"recapText":"..."}'
+                ].join('\n')
+                : [
+                    'Ты редактор понятных пересказов.',
+                    input.langRule,
+                    'Улучшай ТОЛЬКО ясность и связность, не меняй факты.',
+                    'Убери общие/пустые формулировки и тавтологию.',
+                    'Сделай текст конкретным, логичным и легко слушаемым на слух.',
+                    'Сохрани формат из 3 абзацев.',
+                    'Верни только JSON-объект: {"recapText":"..."}'
+                ].join('\n');
+            const response = await fetch(`${this.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1'}/chat/completions`, {
+                method: 'POST',
+                headers: {
+                    'content-type': 'application/json',
+                    authorization: `Bearer ${this.env.OPENAI_API_KEY}`
+                },
+                body: JSON.stringify({
+                    model: this.env.OPENAI_MODEL ?? 'gpt-4.1-mini',
+                    temperature: input.pass === 'draft' ? 0.2 : 0.1,
+                    response_format: { type: 'json_object' },
+                    messages: [
+                        { role: 'system', content: systemPrompt },
+                        {
+                            role: 'user',
+                            content: JSON.stringify(input.pass === 'draft'
+                                ? {
+                                    task: 'retell_full_transcript',
+                                    history: input.history.slice(-6),
+                                    transcript_full: input.transcriptContext,
+                                    summary: parseJsonSafe(input.summaryJson)
+                                }
+                                : {
+                                    task: 'clarify_recap',
+                                    previous_draft: input.previousDraft,
+                                    transcript_summary_hint: parseJsonSafe(input.summaryJson)
+                                }, null, 2)
+                        }
+                    ]
+                }),
+                signal: controller.signal
+            });
+            if (!response.ok) {
+                throw new AssistantGenerationError('ASSISTANT_AI_HTTP_ERROR', `LLM HTTP ${response.status}`);
+            }
+            const data = (await response.json());
+            const content = data.choices?.[0]?.message?.content;
+            if (!content) {
+                throw new AssistantGenerationError('ASSISTANT_AI_INVALID_RESPONSE', 'Empty retelling response');
+            }
+            const parsed = parseJsonLoose(content);
+            return normalizeAssistantAnswer(String(parsed.recapText ?? '').trim());
+        }
+        catch (error) {
+            if (error instanceof AssistantGenerationError) {
+                throw error;
+            }
+            if (error instanceof Error && error.name === 'AbortError') {
+                throw new AssistantGenerationError('ASSISTANT_AI_HTTP_ERROR', `Retelling request timeout after ${timeoutMs}ms`);
+            }
+            const message = error instanceof Error ? error.message : String(error);
+            throw new AssistantGenerationError('ASSISTANT_AI_HTTP_ERROR', message);
+        }
+        finally {
+            clearTimeout(timer);
+        }
+    }
+    async rewriteToRussianText(text) {
+        const timeoutMs = Math.max(20_000, Math.floor(this.env.SUMMARY_AI_TIMEOUT_MS / 2));
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            const response = await fetch(`${this.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1'}/chat/completions`, {
+                method: 'POST',
+                headers: {
+                    'content-type': 'application/json',
+                    authorization: `Bearer ${this.env.OPENAI_API_KEY}`
+                },
+                body: JSON.stringify({
+                    model: this.env.OPENAI_MODEL ?? 'gpt-4.1-mini',
+                    temperature: 0.1,
+                    response_format: { type: 'json_object' },
+                    messages: [
+                        {
+                            role: 'system',
+                            content: [
+                                'Перепиши текст строго на русском языке.',
+                                'Не меняй смысл, структуру и факты.',
+                                'Избегай английских слов, кроме имен и брендов, которые нельзя перевести.',
+                                'Верни только JSON: {"text":"..."}'
+                            ].join('\n')
+                        },
+                        {
+                            role: 'user',
+                            content: JSON.stringify({ text }, null, 2)
+                        }
+                    ]
+                }),
+                signal: controller.signal
+            });
+            if (!response.ok) {
+                return text;
+            }
+            const data = (await response.json());
+            const content = data.choices?.[0]?.message?.content;
+            if (!content)
+                return text;
+            const parsed = parseJsonLoose(content);
+            const normalized = normalizeAssistantAnswer(String(parsed.text ?? '').trim());
+            return normalized || text;
+        }
+        catch {
+            return text;
+        }
+        finally {
+            clearTimeout(timer);
+        }
+    }
     async ask(params) {
         const smallTalkAnswer = buildSmallTalkAnswer(params.question);
         if (smallTalkAnswer) {
@@ -223,6 +395,40 @@ exports.MaterialAssistantService = MaterialAssistantService = __decorate([
     __param(0, (0, common_1.Inject)(config_1.APP_ENV)),
     __metadata("design:paramtypes", [Object])
 ], MaterialAssistantService);
+function inferTextLanguage(text) {
+    const value = String(text || '');
+    const cyr = (value.match(/[А-Яа-яЁё]/g) || []).length;
+    const lat = (value.match(/[A-Za-z]/g) || []).length;
+    if (cyr > 0)
+        return 'ru';
+    return lat > 0 ? 'en' : 'ru';
+}
+function hasExcessLatinForRu(text) {
+    const value = String(text || '');
+    const cyr = (value.match(/[А-Яа-яЁё]/g) || []).length;
+    const lat = (value.match(/[A-Za-z]/g) || []).length;
+    if (cyr === 0)
+        return false;
+    return lat > Math.max(12, Math.floor(cyr * 0.2));
+}
+function isWeakRetell(text) {
+    const value = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!value)
+        return true;
+    const sentenceCount = value.split(/[.!?…]+/).map((s) => s.trim()).filter(Boolean).length;
+    if (sentenceCount < 4)
+        return true;
+    if (value.length < 380)
+        return true;
+    const vaguePatterns = [
+        /в материале (есть|говорится)/i,
+        /в лекции (нет|есть|говорится)/i,
+        /ключевая мысль такая/i,
+        /если хочешь, могу/i
+    ];
+    const vagueHits = vaguePatterns.reduce((acc, pattern) => acc + (pattern.test(value) ? 1 : 0), 0);
+    return vagueHits >= 2;
+}
 function noContextResponse(question) {
     const humanAnswer = buildOffTopicBridgeAnswer(question);
     return {

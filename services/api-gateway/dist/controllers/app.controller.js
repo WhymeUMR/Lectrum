@@ -30,13 +30,16 @@ const zod_validation_pipe_1 = require("../pipes/zod-validation.pipe");
 const generate_flashcards_request_schema_1 = require("../dto/generate-flashcards-request.schema");
 const generate_flashcards_by_job_request_schema_1 = require("../dto/generate-flashcards-by-job-request.schema");
 const assistant_ask_request_schema_1 = require("../dto/assistant-ask-request.schema");
+const assistant_recap_request_schema_1 = require("../dto/assistant-recap-request.schema");
 const material_assistant_service_1 = require("../services/material-assistant.service");
+const assistant_tts_service_1 = require("../services/assistant-tts.service");
 let AppController = class AppController {
-    constructor(env, queueService, store, materialAssistant) {
+    constructor(env, queueService, store, materialAssistant, assistantTts) {
         this.env = env;
         this.queueService = queueService;
         this.store = store;
         this.materialAssistant = materialAssistant;
+        this.assistantTts = assistantTts;
     }
     health() {
         return {
@@ -341,6 +344,84 @@ let AppController = class AppController {
             refused: result.refused
         };
     }
+    async generateAssistantRecapAudio(body) {
+        const job = await this.store.repo.getJob(body.jobId);
+        if (!job) {
+            throw new common_1.NotFoundException(`Job ${body.jobId} not found`);
+        }
+        if (!job.transcriptText) {
+            throw new common_1.ConflictException('Transcript is not ready yet');
+        }
+        const recapText = await this.generateRecapTextForSession(body.jobId, body.sessionId, job.transcriptText, job.summaryJson);
+        let ttsResult;
+        try {
+            ttsResult = await this.assistantTts.synthesize({
+                text: recapText,
+                ttsModel: body.ttsModel,
+                ttsVoiceId: body.ttsVoiceId
+            });
+        }
+        catch (error) {
+            const details = error instanceof Error ? error.message : String(error);
+            const errorCode = error instanceof assistant_tts_service_1.AssistantTtsError
+                ? error.code
+                : 'ASSISTANT_TTS_HTTP_ERROR';
+            throw new common_1.ServiceUnavailableException({
+                message: 'TTS provider is temporarily unavailable',
+                errorCode,
+                details
+            });
+        }
+        await this.store.repo.appendAssistantMessage(body.jobId, body.sessionId, 'assistant', recapText);
+        await this.store.repo.trimAssistantHistory(body.jobId, body.sessionId, 16);
+        return {
+            jobId: body.jobId,
+            sessionId: body.sessionId,
+            recapText,
+            audioBase64: ttsResult.audioBase64,
+            audioMimeType: ttsResult.audioMimeType,
+            ttsModel: ttsResult.model,
+            chunks: ttsResult.chunks
+        };
+    }
+    async streamAssistantRecapAudio(body, response) {
+        const job = await this.store.repo.getJob(body.jobId);
+        if (!job) {
+            throw new common_1.NotFoundException(`Job ${body.jobId} not found`);
+        }
+        if (!job.transcriptText) {
+            throw new common_1.ConflictException('Transcript is not ready yet');
+        }
+        const recapText = await this.generateRecapTextForSession(body.jobId, body.sessionId, job.transcriptText, job.summaryJson);
+        let ttsResult;
+        try {
+            ttsResult = await this.assistantTts.synthesizeRaw({
+                text: recapText,
+                ttsModel: body.ttsModel,
+                ttsVoiceId: body.ttsVoiceId
+            });
+        }
+        catch (error) {
+            const details = error instanceof Error ? error.message : String(error);
+            const errorCode = error instanceof assistant_tts_service_1.AssistantTtsError
+                ? error.code
+                : 'ASSISTANT_TTS_HTTP_ERROR';
+            throw new common_1.ServiceUnavailableException({
+                message: 'TTS provider is temporarily unavailable',
+                errorCode,
+                details
+            });
+        }
+        await this.store.repo.appendAssistantMessage(body.jobId, body.sessionId, 'assistant', recapText);
+        await this.store.repo.trimAssistantHistory(body.jobId, body.sessionId, 16);
+        const recapPreview = encodeURIComponent(recapText.slice(0, 320));
+        response.setHeader('content-type', ttsResult.audioMimeType);
+        response.setHeader('x-tts-model', ttsResult.model);
+        response.setHeader('x-tts-chunks', String(ttsResult.chunks));
+        response.setHeader('x-recap-preview', recapPreview);
+        response.status(common_1.HttpStatus.OK);
+        response.send(ttsResult.audioBuffer);
+    }
     async generateFlashcards(jobId, body, response) {
         const result = await this.requestFlashcardsGeneration(jobId, body.count);
         response.status(common_1.HttpStatus.ACCEPTED);
@@ -384,6 +465,29 @@ let AppController = class AppController {
             status: 'GENERATING_FLASHCARDS',
             requestedCards: count
         };
+    }
+    async generateRecapTextForSession(jobId, sessionId, transcriptText, summaryJson) {
+        const history = await this.store.repo.getAssistantHistory(jobId, sessionId, 12);
+        await this.store.repo.appendAssistantMessage(jobId, sessionId, 'user', 'Сделай полный пересказ лекции и озвучь его');
+        try {
+            const recap = await this.materialAssistant.retellTranscript({
+                transcriptText,
+                summaryJson,
+                history
+            });
+            return recap.recapText;
+        }
+        catch (error) {
+            const details = error instanceof Error ? error.message : String(error);
+            const errorCode = error instanceof material_assistant_service_1.AssistantGenerationError
+                ? error.code
+                : 'ASSISTANT_AI_HTTP_ERROR';
+            throw new common_1.ServiceUnavailableException({
+                message: 'Assistant provider is temporarily unavailable',
+                errorCode,
+                details
+            });
+        }
     }
     async requestHighlightsGeneration(jobId) {
         const job = await this.store.repo.getJob(jobId);
@@ -562,6 +666,21 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], AppController.prototype, "askMaterialAssistant", null);
 __decorate([
+    (0, common_1.Post)('/api/v1/assistant/recap-audio'),
+    __param(0, (0, common_1.Body)(new zod_validation_pipe_1.ZodValidationPipe(assistant_recap_request_schema_1.AssistantRecapRequestSchema))),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], AppController.prototype, "generateAssistantRecapAudio", null);
+__decorate([
+    (0, common_1.Post)('/api/v1/assistant/recap-audio/stream'),
+    __param(0, (0, common_1.Body)(new zod_validation_pipe_1.ZodValidationPipe(assistant_recap_request_schema_1.AssistantRecapRequestSchema))),
+    __param(1, (0, common_1.Res)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", Promise)
+], AppController.prototype, "streamAssistantRecapAudio", null);
+__decorate([
     (0, common_1.Post)('/api/v1/jobs/:jobId/flashcards'),
     __param(0, (0, common_1.Param)('jobId')),
     __param(1, (0, common_1.Body)(new zod_validation_pipe_1.ZodValidationPipe(generate_flashcards_request_schema_1.GenerateFlashcardsRequestSchema))),
@@ -583,6 +702,7 @@ exports.AppController = AppController = __decorate([
     __param(0, (0, common_1.Inject)(config_1.APP_ENV)),
     __metadata("design:paramtypes", [Object, queue_service_1.QueueService,
         job_store_service_1.JobStoreService,
-        material_assistant_service_1.MaterialAssistantService])
+        material_assistant_service_1.MaterialAssistantService,
+        assistant_tts_service_1.AssistantTtsService])
 ], AppController);
 //# sourceMappingURL=app.controller.js.map

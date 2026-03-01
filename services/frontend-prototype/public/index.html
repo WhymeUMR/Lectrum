@@ -69,6 +69,7 @@
     <a href="#highlights">Таймкоды</a>
     <a href="#summary">Конспект</a>
     <a href="#assistant">Помощник</a>
+    <a href="#recap-audio">Пересказ + озвучка</a>
     <a href="#flashcards">Карточки</a>
   </nav>
 
@@ -123,6 +124,13 @@
       <div id="assistant-output">Пока нет.</div>
     </section>
 
+    <section id="recap-audio">
+      <h2>Пересказ + озвучка</h2>
+      <button id="recap-audio-btn" type="button" disabled>Сделать пересказ и озвучить</button>
+      <p id="recap-text-output">Пока нет.</p>
+      <audio id="recap-audio-player" controls preload="none"></audio>
+    </section>
+
     <section id="flashcards">
       <h2>Карточки</h2>
       <form id="flashcards-form">
@@ -154,6 +162,9 @@
     const assistantQuestionInput = document.getElementById('assistant-question');
     const assistantBtn = document.getElementById('assistant-btn');
     const assistantOutput = document.getElementById('assistant-output');
+    const recapAudioBtn = document.getElementById('recap-audio-btn');
+    const recapTextOutput = document.getElementById('recap-text-output');
+    const recapAudioPlayer = document.getElementById('recap-audio-player');
 
     const flashcardsForm = document.getElementById('flashcards-form');
     const flashcardsOutput = document.getElementById('flashcards-output');
@@ -161,6 +172,7 @@
     const cardsCountInput = document.getElementById('cards-count');
 
     let currentJobId = null;
+    let recapAudioBlobUrl = null;
 
     function setStatus(text) {
       statusOutput.textContent = text;
@@ -312,6 +324,31 @@
       return data;
     }
 
+    async function requestRecapAudioStream(jobId, sessionId) {
+      const res = await fetch('/api/v1/assistant/recap-audio/stream', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          jobId,
+          sessionId
+        })
+      });
+      if (!res.ok) {
+        let data = null;
+        try {
+          data = await res.json();
+        } catch {
+          data = null;
+        }
+        const details = data?.details ? `\n${data.details}` : '';
+        throw new Error((data?.errorCode || data?.message || 'Ошибка генерации пересказа') + details);
+      }
+      const previewRaw = String(res.headers.get('x-recap-preview') || '').trim();
+      const recapPreview = previewRaw ? decodeURIComponent(previewRaw) : '';
+      const blob = await res.blob();
+      return { recapPreview, blob };
+    }
+
     assistantSessionInput.value = createDefaultSessionId();
 
     async function pollUntilCompleted(jobId) {
@@ -456,11 +493,19 @@
       setSummary(null);
       setAssistant(null);
       setFlashcards(null);
+      recapTextOutput.textContent = 'Пока нет.';
+      if (recapAudioBlobUrl) {
+        URL.revokeObjectURL(recapAudioBlobUrl);
+        recapAudioBlobUrl = null;
+      }
+      recapAudioPlayer.removeAttribute('src');
+      recapAudioPlayer.load();
 
       flashcardsBtn.disabled = true;
       highlightsBtn.disabled = true;
       summaryBtn.disabled = true;
       assistantBtn.disabled = true;
+      recapAudioBtn.disabled = true;
       currentJobId = null;
 
       const file = fileInput.files && fileInput.files[0];
@@ -501,6 +546,7 @@
         highlightsBtn.disabled = false;
         summaryBtn.disabled = false;
         assistantBtn.disabled = false;
+        recapAudioBtn.disabled = false;
 
         await loadTranscript(jobId);
       } catch (error) {
@@ -609,6 +655,44 @@
       } catch (error) {
         setStatus('Ошибка');
         setError(error instanceof Error ? error.message : String(error));
+      }
+    });
+
+    recapAudioBtn.addEventListener('click', async () => {
+      setError('');
+      if (!currentJobId) {
+        setError('Сначала загрузите и обработайте аудио');
+        return;
+      }
+      try {
+        recapAudioBtn.disabled = true;
+        setStatus('Генерируем пересказ и озвучку...');
+        const sessionId = String(assistantSessionInput.value || '').trim() || createDefaultSessionId();
+        assistantSessionInput.value = sessionId;
+
+        const data = await requestRecapAudioStream(currentJobId, sessionId);
+        recapTextOutput.textContent = data.recapPreview
+          ? `${data.recapPreview}...`
+          : 'Пересказ сгенерирован. Полный текст сохранен в истории сессии.';
+
+        if (data.blob && data.blob.size > 0) {
+          if (recapAudioBlobUrl) {
+            URL.revokeObjectURL(recapAudioBlobUrl);
+          }
+          recapAudioBlobUrl = URL.createObjectURL(data.blob);
+          recapAudioPlayer.src = recapAudioBlobUrl;
+        } else {
+          recapAudioPlayer.removeAttribute('src');
+          recapAudioPlayer.load();
+        }
+        setStatus('COMPLETED');
+      } catch (error) {
+        setStatus('Ошибка');
+        setError(error instanceof Error ? error.message : String(error));
+      } finally {
+        if (currentJobId) {
+          recapAudioBtn.disabled = false;
+        }
       }
     });
   </script>
