@@ -213,6 +213,14 @@ export declare class AppController {
         ttsModel: string;
         chunks: number;
     }>;
+    generateAssistantRecapText(body: {
+        jobId: string;
+        sessionId: string;
+    }): Promise<{
+        jobId: string;
+        sessionId: string;
+        recapText: string;
+    }>;
     streamAssistantRecapAudio(body: {
         jobId: string;
         sessionId: string;

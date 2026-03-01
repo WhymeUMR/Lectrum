@@ -384,6 +384,23 @@ let AppController = class AppController {
             chunks: ttsResult.chunks
         };
     }
+    async generateAssistantRecapText(body) {
+        const job = await this.store.repo.getJob(body.jobId);
+        if (!job) {
+            throw new common_1.NotFoundException(`Job ${body.jobId} not found`);
+        }
+        if (!job.transcriptText) {
+            throw new common_1.ConflictException('Transcript is not ready yet');
+        }
+        const recapText = await this.generateRecapTextForSession(body.jobId, body.sessionId, job.transcriptText, job.summaryJson);
+        await this.store.repo.appendAssistantMessage(body.jobId, body.sessionId, 'assistant', recapText);
+        await this.store.repo.trimAssistantHistory(body.jobId, body.sessionId, 16);
+        return {
+            jobId: body.jobId,
+            sessionId: body.sessionId,
+            recapText
+        };
+    }
     async streamAssistantRecapAudio(body, response) {
         const job = await this.store.repo.getJob(body.jobId);
         if (!job) {
@@ -672,6 +689,13 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", Promise)
 ], AppController.prototype, "generateAssistantRecapAudio", null);
+__decorate([
+    (0, common_1.Post)('/api/v1/assistant/recap'),
+    __param(0, (0, common_1.Body)(new zod_validation_pipe_1.ZodValidationPipe(assistant_recap_request_schema_1.AssistantRecapRequestSchema))),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], AppController.prototype, "generateAssistantRecapText", null);
 __decorate([
     (0, common_1.Post)('/api/v1/assistant/recap-audio/stream'),
     __param(0, (0, common_1.Body)(new zod_validation_pipe_1.ZodValidationPipe(assistant_recap_request_schema_1.AssistantRecapRequestSchema))),

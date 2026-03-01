@@ -46,20 +46,23 @@ let MaterialAssistantService = class MaterialAssistantService {
         }
         const transcriptContext = buildTranscriptPromptContext(params.transcriptText);
         const targetLanguage = inferTextLanguage(params.transcriptText);
+        const recapProfile = await this.detectRecapProfile(params.transcriptText, params.summaryJson);
         const langRule = targetLanguage === 'ru'
             ? 'Пиши только по-русски.'
             : 'Write only in English.';
         let recapText = await this.requestRetell({
             targetLanguage,
+            profile: recapProfile,
             langRule,
             transcriptContext,
             summaryJson: params.summaryJson,
             history: params.history,
             pass: 'draft'
         });
-        if (isWeakRetell(recapText)) {
+        if (isWeakRetell(recapText, recapProfile)) {
             recapText = await this.requestRetell({
                 targetLanguage,
+                profile: recapProfile,
                 langRule,
                 transcriptContext,
                 summaryJson: params.summaryJson,
@@ -81,30 +84,7 @@ let MaterialAssistantService = class MaterialAssistantService {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeoutMs);
         try {
-            const systemPrompt = input.pass === 'draft'
-                ? [
-                    'Ты AI-помощник по материалу лекции.',
-                    ASSISTANT_VOICE_GUIDE,
-                    ASSISTANT_GROUNDING_GUIDE,
-                    input.langRule,
-                    'Сделай понятный пересказ для человека, который НЕ слушал лекцию.',
-                    'Структура строго из 3 абзацев: 1) кто/о чем лекция; 2) ключевые идеи и причинно-следственные связи; 3) итог и зачем это важно.',
-                    'Пиши ясно, конкретно, без канцелярита и общих фраз.',
-                    'Не цитируй длинными кусками, пересказывай своими словами.',
-                    'Не добавляй информации, которой нет в транскрипте.',
-                    'Не используй markdown, списки и служебные заголовки.',
-                    'Если есть самокоррекции и оговорки, бери финальную корректную формулировку.',
-                    'Верни только JSON-объект: {"recapText":"..."}'
-                ].join('\n')
-                : [
-                    'Ты редактор понятных пересказов.',
-                    input.langRule,
-                    'Улучшай ТОЛЬКО ясность и связность, не меняй факты.',
-                    'Убери общие/пустые формулировки и тавтологию.',
-                    'Сделай текст конкретным, логичным и легко слушаемым на слух.',
-                    'Сохрани формат из 3 абзацев.',
-                    'Верни только JSON-объект: {"recapText":"..."}'
-                ].join('\n');
+            const systemPrompt = buildRetellSystemPrompt(input.pass, input.profile, input.langRule);
             const response = await fetch(`${this.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1'}/chat/completions`, {
                 method: 'POST',
                 headers: {
@@ -145,7 +125,8 @@ let MaterialAssistantService = class MaterialAssistantService {
                 throw new AssistantGenerationError('ASSISTANT_AI_INVALID_RESPONSE', 'Empty retelling response');
             }
             const parsed = parseJsonLoose(content);
-            return normalizeAssistantAnswer(String(parsed.recapText ?? '').trim());
+            const composed = composeRetellFromSlots(parsed);
+            return normalizeRecapText(composed);
         }
         catch (error) {
             if (error instanceof AssistantGenerationError) {
@@ -202,11 +183,75 @@ let MaterialAssistantService = class MaterialAssistantService {
             if (!content)
                 return text;
             const parsed = parseJsonLoose(content);
-            const normalized = normalizeAssistantAnswer(String(parsed.text ?? '').trim());
+            const normalized = normalizeRecapText(String(parsed.text ?? '').trim());
             return normalized || text;
         }
         catch {
             return text;
+        }
+        finally {
+            clearTimeout(timer);
+        }
+    }
+    async detectRecapProfile(transcriptText, summaryJson) {
+        const heuristic = detectRecapProfileHeuristic(transcriptText, summaryJson);
+        if (heuristic.confidence >= 0.6) {
+            return heuristic.profile;
+        }
+        const timeoutMs = Math.max(12_000, Math.floor(this.env.SUMMARY_AI_TIMEOUT_MS / 3));
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            const response = await fetch(`${this.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1'}/chat/completions`, {
+                method: 'POST',
+                headers: {
+                    'content-type': 'application/json',
+                    authorization: `Bearer ${this.env.OPENAI_API_KEY}`
+                },
+                body: JSON.stringify({
+                    model: this.env.OPENAI_MODEL ?? 'gpt-4.1-mini',
+                    temperature: 0,
+                    response_format: { type: 'json_object' },
+                    messages: [
+                        {
+                            role: 'system',
+                            content: [
+                                'Классифицируй материал по типу пересказа.',
+                                'Варианты: history, literature, technical, general.',
+                                'history: хронология, события, эпохи, даты.',
+                                'literature: произведение, главы, герои, конфликт, сюжет.',
+                                'technical: гайд/технология/программирование, принципы, шаги, примеры, ошибки.',
+                                'general: остальное.',
+                                'Верни JSON: {"profile":"history|literature|technical|general","confidence":0.0}'
+                            ].join('\n')
+                        },
+                        {
+                            role: 'user',
+                            content: JSON.stringify({
+                                transcript_sample: sampleTranscriptForRelation(transcriptText),
+                                summary: parseJsonSafe(summaryJson),
+                                heuristic_guess: heuristic
+                            }, null, 2)
+                        }
+                    ]
+                }),
+                signal: controller.signal
+            });
+            if (!response.ok)
+                return heuristic.profile;
+            const data = (await response.json());
+            const content = data.choices?.[0]?.message?.content;
+            if (!content)
+                return heuristic.profile;
+            const parsed = parseJsonLoose(content);
+            const p = String(parsed.profile || '').trim().toLowerCase();
+            if (p === 'history' || p === 'literature' || p === 'technical' || p === 'general') {
+                return p;
+            }
+            return heuristic.profile;
+        }
+        catch {
+            return heuristic.profile;
         }
         finally {
             clearTimeout(timer);
@@ -411,23 +456,261 @@ function hasExcessLatinForRu(text) {
         return false;
     return lat > Math.max(12, Math.floor(cyr * 0.2));
 }
-function isWeakRetell(text) {
+function isWeakRetell(text, profile) {
     const value = String(text || '').replace(/\s+/g, ' ').trim();
     if (!value)
         return true;
     const sentenceCount = value.split(/[.!?…]+/).map((s) => s.trim()).filter(Boolean).length;
     if (sentenceCount < 4)
         return true;
-    if (value.length < 380)
+    if (value.length < 420)
         return true;
+    const numberedSections = (value.match(/(?:^|\s)(\d+)\.\s+/g) || []).length;
+    if (numberedSections < 3)
+        return true;
+    if (!/\bитог\b[:：]/i.test(value))
+        return true;
+    if (/\*\*этап\*\*:/i.test(value) || /\*\*задача\*\*:/i.test(value))
+        return true;
+    if (/\bпараметр\b/i.test(value) && /\bсравнение\b/i.test(value))
+        return true;
+    if (/\|[^|\n]+\|[^|\n]+\|/.test(value))
+        return true; // markdown table pattern
+    if (/(твой пересказ|мой принцип|summary|deep dive)/i.test(value))
+        return true;
+    // Must preserve "problem -> solution -> evolution" logic, but without mandatory explicit labels.
+    if (/\*\*bug\*\*:/i.test(value) || /\*\*fix\*\*:/i.test(value) || /\*\*changelog\*\*:/i.test(value) || /\*\*пасхалка\*\*:/i.test(value))
+        return true;
+    const hasProblem = /(проблем|трудност|ограничени|не получал|не удавал|мешал)/i.test(value);
+    const hasSolution = /(решени|поэтому сделали|в ответ на это|для этого|перешли к|внедрили|использовали)/i.test(value);
+    const hasEvolution = /(сначала|затем|потом|позже|к этому пришли|эволюц|этап|к \d{4}|в \d{4})/i.test(value);
+    if (!hasProblem || !hasSolution || !hasEvolution)
+        return true;
+    const problemMentions = (value.match(/\bпроблем[аы]\b/gi) || []).length;
+    const solutionMentions = (value.match(/\bрешени[ея]\b/gi) || []).length;
+    if (problemMentions < 2 || solutionMentions < 2)
+        return true;
+    // Numeric years/dates are allowed in UI text; TTS layer normalizes them separately.
+    if (!/\*\*[^*]{2,40}\*\*/.test(value))
+        return true;
+    if (profile === 'history') {
+        const dateMarkers = (value.match(/\b(1[0-9]{3}|20[0-9]{2}|21[0-9]{2})\b/g) || []).length;
+        if (dateMarkers < 2 && !/\bвек\b/i.test(value))
+            return true;
+        if (!/(масштаб боли|физическ\w+\s+трудност|вручную|суток|дней|риск|треск\w+\s+льдин)/i.test(value))
+            return true;
+        if (!/(вектор эволюции|эволюц|сначала.*затем|позже.*поэтому)/i.test(value))
+            return true;
+        if (!/(причин\w+.*следств\w+|из-за этого|в ответ на это|поэтому пришлось)/i.test(value))
+            return true;
+    }
+    if (profile === 'literature') {
+        if (!/(глава|главы|часть|сюжет|геро|персонаж|конфликт|развязк)/i.test(value))
+            return true;
+    }
+    if (profile === 'technical') {
+        if (!/(пример|шаг|алгоритм|принцип|ошибк|код|api|интерфейс|архитектур)/i.test(value))
+            return true;
+    }
     const vaguePatterns = [
+        /автор говорит/i,
+        /в тексте описывается/i,
+        /в материале рассматривается/i,
+        /стало важной частью/i,
+        /играло важную роль/i,
         /в материале (есть|говорится)/i,
         /в лекции (нет|есть|говорится)/i,
         /ключевая мысль такая/i,
         /если хочешь, могу/i
     ];
     const vagueHits = vaguePatterns.reduce((acc, pattern) => acc + (pattern.test(value) ? 1 : 0), 0);
-    return vagueHits >= 2;
+    return vagueHits >= 1;
+}
+function normalizeRecapText(text) {
+    return String(text || '')
+        .replace(/\r\n/g, '\n')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
+function composeRetellFromSlots(input) {
+    const recapText = String(input.recapText ?? '').trim();
+    const problem = String(input.problem ?? '').trim();
+    const solution = String(input.solution ?? '').trim();
+    const painScale = String(input.painScale ?? '').trim();
+    const changelog = String(input.changelog ?? '').trim();
+    const evolutionVector = String(input.evolutionVector ?? '').trim();
+    const causeEffect = String(input.causeEffect ?? '').trim();
+    const easterEgg = String(input.easterEgg ?? '').trim();
+    const final = String(input.final ?? '').trim();
+    const richParts = [];
+    if (problem)
+        richParts.push(takeSentences(problem, 1));
+    if (solution)
+        richParts.push(takeSentences(solution, 1));
+    if (painScale)
+        richParts.push(takeSentences(painScale, 1));
+    if (changelog)
+        richParts.push(summarizeChangelog(changelog));
+    if (causeEffect)
+        richParts.push(takeSentences(causeEffect, 1));
+    if (easterEgg)
+        richParts.push(takeSentences(easterEgg, 1));
+    richParts.push(takeSentences(final || 'Это развитие показывает, как от неустойчивого подхода пришли к более надежной и практичной модели.', 1));
+    if (richParts.length >= 5) {
+        const merged = richParts
+            .filter(Boolean)
+            .join(' ')
+            .replace(/\s*[→\-]{1,2}>\s*/g, ', затем ')
+            .replace(/\s*→\s*/g, ', затем ');
+        return compactRetellText(merged, 980);
+    }
+    return recapText;
+}
+function takeSentences(text, count) {
+    const sentences = splitSentences(text);
+    return sentences.slice(0, Math.max(1, count)).join(' ').trim();
+}
+function summarizeChangelog(changelog) {
+    const normalized = String(changelog || '').replace(/\n/g, ' ').trim();
+    if (!normalized)
+        return '';
+    const pieces = normalized
+        .split(/[;•]/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+    if (pieces.length <= 3) {
+        return compactRetellText(pieces.join('; '), 260);
+    }
+    const mid = pieces[Math.floor(pieces.length / 2)];
+    return compactRetellText(`${pieces[0]}; ${mid}; ${pieces[pieces.length - 1]}.`, 320);
+}
+function compactRetellText(text, maxChars) {
+    const sentences = splitSentences(text);
+    const uniq = [];
+    const seen = new Set();
+    for (const sentence of sentences) {
+        const key = sentence.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, '').replace(/\s+/g, ' ').trim();
+        if (!key || seen.has(key))
+            continue;
+        seen.add(key);
+        // Drop chain-like fragments; user requested no arrow chains.
+        if (/[→]|->|=>/.test(sentence))
+            continue;
+        uniq.push(sentence.trim());
+    }
+    const result = [];
+    let total = 0;
+    for (const sentence of uniq) {
+        if (!sentence)
+            continue;
+        const add = (result.length ? 1 : 0) + sentence.length;
+        if (total + add > maxChars)
+            break;
+        result.push(sentence);
+        total += add;
+    }
+    return result.join(' ').trim();
+}
+function splitSentences(text) {
+    return String(text || '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .split(/(?<=[.!?…])\s+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+}
+function detectRecapProfileHeuristic(transcriptText, summaryJson) {
+    const base = `${String(transcriptText || '').slice(0, 120000)} ${JSON.stringify(parseJsonSafe(summaryJson) || {})}`.toLowerCase();
+    const scores = {
+        history: 0,
+        literature: 0,
+        technical: 0,
+        general: 0.1
+    };
+    const historyTerms = ['год', 'век', 'эпох', 'революц', 'войн', 'экспеди', 'дата', 'истор'];
+    const literatureTerms = ['глава', 'роман', 'повест', 'геро', 'персонаж', 'сюжет', 'конфликт', 'развязк', 'книг'];
+    const technicalTerms = ['алгоритм', 'код', 'функц', 'api', 'протокол', 'архитектур', 'база данных', 'интерфейс', 'баг', 'ошибк', 'деплой', 'тест'];
+    scores.history += countTerms(base, historyTerms) * 1.2;
+    scores.literature += countTerms(base, literatureTerms) * 1.4;
+    scores.technical += countTerms(base, technicalTerms) * 1.4;
+    const dates = (base.match(/\b(1[0-9]{3}|20[0-9]{2}|21[0-9]{2})\b/g) || []).length;
+    if (dates >= 3)
+        scores.history += 3;
+    if (/(chapter|cap[ií]tulo|глава)/i.test(base))
+        scores.literature += 1.5;
+    if (/(javascript|python|typescript|sql|docker|kubernetes|git|api)/i.test(base))
+        scores.technical += 2;
+    const best = Object.keys(scores).sort((a, b) => scores[b] - scores[a])[0];
+    const sorted = Object.keys(scores).sort((a, b) => scores[b] - scores[a]);
+    const gap = scores[sorted[0]] - scores[sorted[1]];
+    const confidence = Math.max(0.2, Math.min(0.95, 0.45 + gap / 10));
+    return { profile: best, confidence };
+}
+function countTerms(text, terms) {
+    let count = 0;
+    for (const term of terms) {
+        const safe = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const matches = text.match(new RegExp(safe, 'g'));
+        count += matches ? matches.length : 0;
+    }
+    return count;
+}
+function buildRetellSystemPrompt(pass, profile, langRule) {
+    const universal = [
+        'Ты AI-помощник по материалу.',
+        ASSISTANT_GROUNDING_GUIDE,
+        langRule,
+        'Пиши для человека, который не читал исходник.',
+        'Сделай именно пересказ, а не отчет, не сравнение подходов и не таблицу.',
+        'Никакой воды и метакомментариев.',
+        'Структура: подробный обучающий конспект для человека, который не читал исходник.',
+        'Сначала четко раскрой проблему, затем решение, затем физическую цену/сложность, затем эволюцию по этапам, затем причинно-следственный переход к современному решению.',
+        'Добавляй прием "Масштаб боли": вместо абстракции давай физическую деталь трудности (время, усилие, риск, быт).',
+        'Дай четкий лог этапов развития с датами/периодами и смыслом переходов между этапами.',
+        'В конце добавь одну яркую запоминающуюся деталь из материала.',
+        'Используй 1-2 **жирных** ключевых термина в каждом крупном фрагменте.',
+        'Добавляй конкретные и запоминаемые детали из источника (цифры, приемы, бытовые/инженерные примеры), но без выдумывания.',
+        'Для текста в UI используй обычную запись дат и чисел цифрами, чтобы читать было проще.',
+        'Озвучка обрабатывается отдельным TTS-нормализатором, поэтому не нужно принудительно расписывать числа словами.',
+        'В конце обязательный блок с итоговым выводом.',
+        'Не используй шаблон отдельных строк "**Этап:**/**Задача:**".',
+        'Не используй служебные метки "Bug/Fix/Changelog/Пасхалка" в явном виде.',
+        'Запрещено: markdown-таблицы, колонки "Параметр/Сравнение", формат "Твой вариант vs Мой вариант".',
+        pass === 'clarify'
+            ? 'Это редакторский проход: улучшай ясность и конкретику, не меняя факты, и убирай любую "отчетность".'
+            : 'Это основной проход: собирай полный, понятный и запоминающийся пересказ.'
+    ];
+    const profileRules = {
+        history: [
+            'Фокус: хронология, даты и события.',
+            'Добавляй ключевые временные маркеры (годы/периоды), поворотные моменты и объясняй, почему решения менялись от этапа к этапу.',
+            'Обязательно используй прием "масштаб боли": вместо абстрактного "было трудно" дай физический образ трудности из источника (время, усилие, риск, быт).',
+            'Покажи в тексте вектор эволюции: как менялась опорная точка технологии от этапа к этапу.',
+            'Явно свяжи причину и следствие: какой баг среды/природы сломал старый подход и какой фикс привел к новому решению.'
+        ],
+        literature: [
+            'Фокус: краткое содержание по главам/частям.',
+            'Отражай героев, конфликт, развитие и развязку, с 1-2 яркими деталями по каждой крупной части.'
+        ],
+        technical: [
+            'Фокус: как это работает.',
+            'Обязательно добавляй принципы, шаги применения и хотя бы один практический пример.',
+            'Отмечай типичные ошибки и как их избежать, объясняй инженерные компромиссы и почему выбрано именно это решение.'
+        ],
+        general: [
+            'Фокус: ключевые идеи, аргументы и выводы.',
+            'Добавляй конкретные факты/кейсы, которые помогают понять суть, а не только абстрактные формулировки.'
+        ]
+    };
+    return [
+        ...universal,
+        ...profileRules[profile],
+        'Верни только JSON-объект формата:',
+        '{"problem":"...","solution":"...","painScale":"...","changelog":"...","evolutionVector":"...","causeEffect":"...","easterEgg":"...","final":"...","recapText":"..."}',
+        'Поля problem/solution/painScale/changelog/evolutionVector/causeEffect/easterEgg/final обязательны и должны быть содержательными (минимум по два предложения в каждом, кроме final).',
+        'В recapText собери цельный вариант без служебных меток.'
+    ].join('\n');
 }
 function noContextResponse(question) {
     const humanAnswer = buildOffTopicBridgeAnswer(question);

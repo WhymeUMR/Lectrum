@@ -37,6 +37,7 @@ export declare class MaterialAssistantService {
     }>;
     private requestRetell;
     private rewriteToRussianText;
+    private detectRecapProfile;
     ask(params: {
         question: string;
         transcriptText: string;

@@ -56,7 +56,8 @@
     #summary-output,
     #highlights-output,
     #flashcards-output,
-    #transcript-output {
+    #transcript-output,
+    #recap-text-output {
       white-space: pre-wrap;
     }
   </style>
@@ -347,6 +348,23 @@
       const recapPreview = previewRaw ? decodeURIComponent(previewRaw) : '';
       const blob = await res.blob();
       return { recapPreview, blob };
+    }
+
+    async function requestRecapText(jobId, sessionId) {
+      const res = await fetch('/api/v1/assistant/recap', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          jobId,
+          sessionId
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const details = data?.details ? `\n${data.details}` : '';
+        throw new Error((data?.errorCode || data?.message || 'Ошибка генерации пересказа') + details);
+      }
+      return data;
     }
 
     assistantSessionInput.value = createDefaultSessionId();
@@ -670,10 +688,14 @@
         const sessionId = String(assistantSessionInput.value || '').trim() || createDefaultSessionId();
         assistantSessionInput.value = sessionId;
 
+        const recapData = await requestRecapText(currentJobId, sessionId);
+        const fullRecapText = String(recapData.recapText || '').trim();
+        recapTextOutput.textContent = fullRecapText || 'Нет текста пересказа.';
+
         const data = await requestRecapAudioStream(currentJobId, sessionId);
-        recapTextOutput.textContent = data.recapPreview
-          ? `${data.recapPreview}...`
-          : 'Пересказ сгенерирован. Полный текст сохранен в истории сессии.';
+        if (!fullRecapText && data.recapPreview) {
+          recapTextOutput.textContent = `${data.recapPreview}...`;
+        }
 
         if (data.blob && data.blob.size > 0) {
           if (recapAudioBlobUrl) {

@@ -473,6 +473,41 @@ export class AppController {
     };
   }
 
+  @Post('/api/v1/assistant/recap')
+  async generateAssistantRecapText(
+    @Body(new ZodValidationPipe(AssistantRecapRequestSchema))
+    body: { jobId: string; sessionId: string }
+  ) {
+    const job = await this.store.repo.getJob(body.jobId);
+    if (!job) {
+      throw new NotFoundException(`Job ${body.jobId} not found`);
+    }
+    if (!job.transcriptText) {
+      throw new ConflictException('Transcript is not ready yet');
+    }
+
+    const recapText = await this.generateRecapTextForSession(
+      body.jobId,
+      body.sessionId,
+      job.transcriptText,
+      job.summaryJson
+    );
+
+    await this.store.repo.appendAssistantMessage(
+      body.jobId,
+      body.sessionId,
+      'assistant',
+      recapText
+    );
+    await this.store.repo.trimAssistantHistory(body.jobId, body.sessionId, 16);
+
+    return {
+      jobId: body.jobId,
+      sessionId: body.sessionId,
+      recapText
+    };
+  }
+
   @Post('/api/v1/assistant/recap-audio/stream')
   async streamAssistantRecapAudio(
     @Body(new ZodValidationPipe(AssistantRecapRequestSchema))
