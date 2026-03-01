@@ -39,6 +39,7 @@ async function ensurePipelineSchema(pool) {
         flashcards_json TEXT,
         summary_path TEXT,
         summary_json TEXT,
+        quiz_json TEXT,
         error_code TEXT,
         error_message TEXT,
         requested_language TEXT NOT NULL,
@@ -88,6 +89,9 @@ async function ensurePipelineSchema(pool) {
 
       ALTER TABLE lecture_jobs
       ADD COLUMN IF NOT EXISTS summary_json TEXT;
+
+      ALTER TABLE lecture_jobs
+      ADD COLUMN IF NOT EXISTS quiz_json TEXT;
     `);
     }
     finally {
@@ -236,6 +240,14 @@ class PipelineRepository {
       WHERE job_id = $1
       `, [jobId, highlightsPath, highlightsJson]);
     }
+    async saveQuiz(jobId, quizJson) {
+        await this.pool.query(`
+      UPDATE lecture_jobs
+      SET quiz_json = $2,
+          updated_at = NOW()
+      WHERE job_id = $1
+      `, [jobId, quizJson]);
+    }
     async getJob(jobId) {
         const result = await this.pool.query(`
       SELECT
@@ -256,6 +268,7 @@ class PipelineRepository {
         flashcards_json AS "flashcardsJson",
         summary_path AS "summaryPath",
         summary_json AS "summaryJson",
+        quiz_json AS "quizJson",
         error_code AS "errorCode",
         error_message AS "errorMessage",
         requested_language AS "requestedLanguage",

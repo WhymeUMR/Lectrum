@@ -28,6 +28,8 @@ import { CreateIngestionRequestSchema } from '../dto/create-ingestion-request.sc
 import { ZodValidationPipe } from '../pipes/zod-validation.pipe';
 import { GenerateFlashcardsRequestSchema } from '../dto/generate-flashcards-request.schema';
 import { GenerateFlashcardsByJobRequestSchema } from '../dto/generate-flashcards-by-job-request.schema';
+import { GenerateQuizRequestSchema } from '../dto/generate-quiz-request.schema';
+import { CheckQuizAnswersRequestSchema } from '../dto/check-quiz-answers-request.schema';
 import { AssistantAskRequestSchema } from '../dto/assistant-ask-request.schema';
 import { AssistantRecapRequestSchema } from '../dto/assistant-recap-request.schema';
 import { AssistantTtsPreviewRequestSchema } from '../dto/assistant-tts-preview-request.schema';
@@ -36,6 +38,11 @@ import {
   MaterialAssistantService
 } from '../services/material-assistant.service';
 import { AssistantTtsError, AssistantTtsService } from '../services/assistant-tts.service';
+import {
+  MaterialQuizService,
+  QuizAnswerInput,
+  QuizGenerationError
+} from '../services/material-quiz.service';
 
 @Controller()
 export class AppController {
@@ -44,7 +51,8 @@ export class AppController {
     private readonly queueService: QueueService,
     private readonly store: JobStoreService,
     private readonly materialAssistant: MaterialAssistantService,
-    private readonly assistantTts: AssistantTtsService
+    private readonly assistantTts: AssistantTtsService,
+    private readonly materialQuiz: MaterialQuizService
   ) {}
 
   @Get('/health')
@@ -236,7 +244,8 @@ export class AppController {
       summaryPath: job.summaryPath,
       summary: job.summaryJson ? JSON.parse(job.summaryJson) : null,
       flashcardsPath: job.flashcardsPath,
-      flashcards: job.flashcardsJson ? JSON.parse(job.flashcardsJson) : null
+      flashcards: job.flashcardsJson ? JSON.parse(job.flashcardsJson) : null,
+      quiz: this.safePublicQuiz(job.quizJson)
     };
   }
 
@@ -693,6 +702,113 @@ export class AppController {
     return result;
   }
 
+  @Post('/api/v1/tests/generate')
+  async generateMaterialQuiz(
+    @Body(new ZodValidationPipe(GenerateQuizRequestSchema))
+    body: { jobId: string; count: number; difficulty: 'easy' | 'medium' | 'hard'; language: string }
+  ) {
+    const job = await this.store.repo.getJob(body.jobId);
+    if (!job) {
+      throw new NotFoundException(`Job ${body.jobId} not found`);
+    }
+    if (!job.transcriptText) {
+      throw new ConflictException('Transcript is not ready yet');
+    }
+
+    try {
+      const quiz = await this.materialQuiz.generateQuiz({
+        lectureId: job.lectureId,
+        transcriptText: job.transcriptText,
+        transcriptJson: job.transcriptJson,
+        count: body.count,
+        difficulty: body.difficulty,
+        language: body.language
+      });
+      await this.store.repo.saveQuiz(body.jobId, JSON.stringify(quiz));
+      return {
+        jobId: body.jobId,
+        quiz: this.materialQuiz.toPublicQuiz(quiz)
+      };
+    } catch (error) {
+      const details = error instanceof Error ? error.message : String(error);
+      const errorCode =
+        error instanceof QuizGenerationError
+          ? error.code
+          : 'QUIZ_AI_HTTP_ERROR';
+      throw new ServiceUnavailableException({
+        message: 'Quiz provider is temporarily unavailable',
+        errorCode,
+        details
+      });
+    }
+  }
+
+  @Post('/api/v1/tests/check')
+  async checkMaterialQuiz(
+    @Body(new ZodValidationPipe(CheckQuizAnswersRequestSchema))
+    body: { jobId: string; answers: QuizAnswerInput[] }
+  ) {
+    const job = await this.store.repo.getJob(body.jobId);
+    if (!job) {
+      throw new NotFoundException(`Job ${body.jobId} not found`);
+    }
+    if (!job.quizJson) {
+      throw new ConflictException('Quiz is not generated yet');
+    }
+
+    let quiz: ReturnType<MaterialQuizService['parseStoredQuiz']>;
+    try {
+      quiz = this.materialQuiz.parseStoredQuiz(job.quizJson);
+    } catch {
+      throw new ConflictException('Stored quiz payload is invalid');
+    }
+    const answers = this.materialQuiz.parseAnswers(body.answers);
+
+    const evaluation = this.materialQuiz.gradeQuiz(quiz, answers);
+    return {
+      jobId: body.jobId,
+      score: {
+        total: evaluation.total,
+        correct: evaluation.correct,
+        percentage: evaluation.percentage
+      },
+      results: evaluation.results
+    };
+  }
+
+  @Post('/api/v1/tests/stats')
+  async getMaterialQuizStats(
+    @Body(new ZodValidationPipe(CheckQuizAnswersRequestSchema))
+    body: { jobId: string; answers: QuizAnswerInput[] }
+  ) {
+    const job = await this.store.repo.getJob(body.jobId);
+    if (!job) {
+      throw new NotFoundException(`Job ${body.jobId} not found`);
+    }
+    if (!job.quizJson) {
+      throw new ConflictException('Quiz is not generated yet');
+    }
+
+    let quiz: ReturnType<MaterialQuizService['parseStoredQuiz']>;
+    try {
+      quiz = this.materialQuiz.parseStoredQuiz(job.quizJson);
+    } catch {
+      throw new ConflictException('Stored quiz payload is invalid');
+    }
+    const answers = this.materialQuiz.parseAnswers(body.answers);
+    const evaluation = this.materialQuiz.gradeQuiz(quiz, answers);
+    const stats = this.materialQuiz.buildFinalStats(quiz, evaluation);
+
+    return {
+      jobId: body.jobId,
+      score: stats.score,
+      answered: stats.answered,
+      wrongCount: stats.wrongCount,
+      needsWork: stats.needsWork,
+      results: evaluation.results
+    };
+  }
+
   private async requestFlashcardsGeneration(jobId: string, count: number) {
     const job = await this.store.repo.getJob(jobId);
     if (!job) {
@@ -848,5 +964,16 @@ export class AppController {
       FAILED: 100
     };
     return map[status] ?? 0;
+  }
+
+  private safePublicQuiz(quizJson: string | null): ReturnType<MaterialQuizService['toPublicQuiz']> | null {
+    if (!quizJson) {
+      return null;
+    }
+    try {
+      return this.materialQuiz.toPublicQuiz(this.materialQuiz.parseStoredQuiz(quizJson));
+    } catch {
+      return null;
+    }
   }
 }

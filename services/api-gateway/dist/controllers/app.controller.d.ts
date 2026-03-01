@@ -4,13 +4,15 @@ import { QueueService } from '../services/queue.service';
 import { JobStoreService } from '../services/job-store.service';
 import { MaterialAssistantService } from '../services/material-assistant.service';
 import { AssistantTtsService } from '../services/assistant-tts.service';
+import { MaterialQuizService, QuizAnswerInput } from '../services/material-quiz.service';
 export declare class AppController {
     private readonly env;
     private readonly queueService;
     private readonly store;
     private readonly materialAssistant;
     private readonly assistantTts;
-    constructor(env: AppEnv, queueService: QueueService, store: JobStoreService, materialAssistant: MaterialAssistantService, assistantTts: AssistantTtsService);
+    private readonly materialQuiz;
+    constructor(env: AppEnv, queueService: QueueService, store: JobStoreService, materialAssistant: MaterialAssistantService, assistantTts: AssistantTtsService, materialQuiz: MaterialQuizService);
     health(): {
         status: string;
         service: string;
@@ -59,6 +61,7 @@ export declare class AppController {
         summary?: undefined;
         flashcardsPath?: undefined;
         flashcards?: undefined;
+        quiz?: undefined;
     } | {
         jobId: string;
         status: "QUEUED" | "INGESTING" | "INGESTED" | "TRANSCRIBING" | "GENERATING_HIGHLIGHTS" | "GENERATING_SUMMARY" | "GENERATING_FLASHCARDS";
@@ -78,6 +81,7 @@ export declare class AppController {
         summary?: undefined;
         flashcardsPath?: undefined;
         flashcards?: undefined;
+        quiz?: undefined;
     } | {
         jobId: string;
         lectureId: string;
@@ -91,6 +95,7 @@ export declare class AppController {
         summary: any;
         flashcardsPath: string | null;
         flashcards: any;
+        quiz: import("../services/material-quiz.service").PublicQuiz | null;
         message?: undefined;
         errorCode?: undefined;
         errorMessage?: undefined;
@@ -267,9 +272,62 @@ export declare class AppController {
         status: string;
         requestedCards: number;
     }>;
+    generateMaterialQuiz(body: {
+        jobId: string;
+        count: number;
+        difficulty: 'easy' | 'medium' | 'hard';
+        language: string;
+    }): Promise<{
+        jobId: string;
+        quiz: import("../services/material-quiz.service").PublicQuiz;
+    }>;
+    checkMaterialQuiz(body: {
+        jobId: string;
+        answers: QuizAnswerInput[];
+    }): Promise<{
+        jobId: string;
+        score: {
+            total: number;
+            correct: number;
+            percentage: number;
+        };
+        results: {
+            questionId: string;
+            correct: boolean;
+            explanation: string;
+            expectedAnswer: string;
+            userAnswer: string;
+        }[];
+    }>;
+    getMaterialQuizStats(body: {
+        jobId: string;
+        answers: QuizAnswerInput[];
+    }): Promise<{
+        jobId: string;
+        score: {
+            total: number;
+            correct: number;
+            percentage: number;
+        };
+        answered: number;
+        wrongCount: number;
+        needsWork: {
+            questionId: string;
+            topic: string;
+            recommendation: string;
+        }[];
+        results: {
+            questionId: string;
+            correct: boolean;
+            explanation: string;
+            expectedAnswer: string;
+            userAnswer: string;
+        }[];
+    }>;
     private requestFlashcardsGeneration;
     private generateRecapTextForSession;
     private requestHighlightsGeneration;
     private requestSummaryGeneration;
     private statusToProgress;
+    private safePublicQuiz;
 }

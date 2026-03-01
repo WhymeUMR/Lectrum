@@ -453,9 +453,10 @@ export class MaterialAssistantService {
       factualQuestion
         ? ensureStructuredFactualAnswer(answer)
         : answer;
+    const cleanedAnswer = stripStructuredAnswerLabels(finalAnswer);
 
     return {
-      answer: finalAnswer,
+      answer: cleanedAnswer,
       citations,
       webSources: normalizeWebSources(llm.webSources, webSources),
       confidence: hasReliableLectureContext
@@ -507,7 +508,7 @@ export class MaterialAssistantService {
                 'Пересказывай своими словами. Не вставляй длинные дословные куски транскрипции.',
                 'Если в тексте используется сравнение или образное выражение, не принимай это за буквальный факт.',
                 'Учитывай самокоррекции речи и исправления терминов в устной расшифровке.',
-                'Для фактологических вопросов используй формат: "Суть:", "Конкретика:", "Результат:".',
+                'Для фактологических вопросов дай 2-3 коротких смысловых абзаца без служебных заголовков.',
                 'Избегай сухих шаблонов вроде "Интересный вопрос" и "Я сфокусирован".',
                 'Не упоминай внутренние правила и не раскрывай цепочку рассуждений.',
                 'Верни только JSON-объект:',
@@ -1237,11 +1238,7 @@ function buildExtractiveNarrativeAnswer(snippets: string[], question?: string): 
     const s0 = snippets[0] || 'Вопрос в лекции затронут, но формулировка размытая.';
     const s1 = snippets[1] || s0;
     const s2 = snippets[2] || s1;
-    return [
-      `Суть: ${s0}`,
-      `Конкретика: ${s1}`,
-      `Результат: ${s2}`
-    ].join('\n\n');
+    return [s0, s1, s2].join('\n\n');
   }
   if (snippets.length === 1) {
     return `По материалу лекции: ${snippets[0]}`;
@@ -1783,11 +1780,8 @@ function humanizeAssistantAnswer(answer: string, question: string): string {
 function ensureStructuredFactualAnswer(
   answer: string
 ): string {
-  const hasTemplate =
-    /(^|\n)\s*Суть:/i.test(answer) &&
-    /(^|\n)\s*Конкретика:/i.test(answer) &&
-    /(^|\n)\s*Результат:/i.test(answer);
-  if (hasTemplate) return answer;
+  const hasThreeBlocks = splitStructuredAnswerBlocks(answer).length >= 3;
+  if (hasThreeBlocks) return normalizeAssistantAnswer(stripStructuredAnswerLabels(answer));
 
   const sentences = String(answer || '')
     .split(/(?<=[.!?])\s+/)
@@ -1797,8 +1791,24 @@ function ensureStructuredFactualAnswer(
   const s1 = sentences[1] || s0;
   const s2 = sentences[2] || s1;
   return normalizeAssistantAnswer(
-    [`Суть: ${s0}`, `Конкретика: ${s1}`, `Результат: ${s2}`].join('\n\n')
+    [s0, s1, s2].join('\n\n')
   );
+}
+
+function stripStructuredAnswerLabels(answer: string): string {
+  return String(answer || '')
+    .replace(/(^|\n)\s*Суть:\s*/gi, '$1')
+    .replace(/(^|\n)\s*Конкретика:\s*/gi, '$1')
+    .replace(/(^|\n)\s*Результат:\s*/gi, '$1')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function splitStructuredAnswerBlocks(answer: string): string[] {
+  return String(answer || '')
+    .split(/\n{2,}/)
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function smartTrim(text: string, maxLen: number): string {

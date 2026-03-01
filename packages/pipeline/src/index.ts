@@ -50,6 +50,7 @@ export interface JobRecord {
   flashcardsJson: string | null;
   summaryPath: string | null;
   summaryJson: string | null;
+  quizJson: string | null;
   errorCode: string | null;
   errorMessage: string | null;
   requestedLanguage: string;
@@ -87,6 +88,7 @@ async function ensurePipelineSchema(pool: Pool): Promise<void> {
         flashcards_json TEXT,
         summary_path TEXT,
         summary_json TEXT,
+        quiz_json TEXT,
         error_code TEXT,
         error_message TEXT,
         requested_language TEXT NOT NULL,
@@ -136,6 +138,9 @@ async function ensurePipelineSchema(pool: Pool): Promise<void> {
 
       ALTER TABLE lecture_jobs
       ADD COLUMN IF NOT EXISTS summary_json TEXT;
+
+      ALTER TABLE lecture_jobs
+      ADD COLUMN IF NOT EXISTS quiz_json TEXT;
     `);
   } finally {
     await pool.query(`SELECT pg_advisory_unlock(918273645)`);
@@ -352,6 +357,18 @@ export class PipelineRepository {
     );
   }
 
+  async saveQuiz(jobId: string, quizJson: string): Promise<void> {
+    await this.pool.query(
+      `
+      UPDATE lecture_jobs
+      SET quiz_json = $2,
+          updated_at = NOW()
+      WHERE job_id = $1
+      `,
+      [jobId, quizJson]
+    );
+  }
+
   async getJob(jobId: string): Promise<JobRecord | null> {
     const result = await this.pool.query(
       `
@@ -373,6 +390,7 @@ export class PipelineRepository {
         flashcards_json AS "flashcardsJson",
         summary_path AS "summaryPath",
         summary_json AS "summaryJson",
+        quiz_json AS "quizJson",
         error_code AS "errorCode",
         error_message AS "errorMessage",
         requested_language AS "requestedLanguage",

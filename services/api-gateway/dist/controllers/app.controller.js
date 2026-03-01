@@ -29,18 +29,22 @@ const create_ingestion_request_schema_1 = require("../dto/create-ingestion-reque
 const zod_validation_pipe_1 = require("../pipes/zod-validation.pipe");
 const generate_flashcards_request_schema_1 = require("../dto/generate-flashcards-request.schema");
 const generate_flashcards_by_job_request_schema_1 = require("../dto/generate-flashcards-by-job-request.schema");
+const generate_quiz_request_schema_1 = require("../dto/generate-quiz-request.schema");
+const check_quiz_answers_request_schema_1 = require("../dto/check-quiz-answers-request.schema");
 const assistant_ask_request_schema_1 = require("../dto/assistant-ask-request.schema");
 const assistant_recap_request_schema_1 = require("../dto/assistant-recap-request.schema");
 const assistant_tts_preview_request_schema_1 = require("../dto/assistant-tts-preview-request.schema");
 const material_assistant_service_1 = require("../services/material-assistant.service");
 const assistant_tts_service_1 = require("../services/assistant-tts.service");
+const material_quiz_service_1 = require("../services/material-quiz.service");
 let AppController = class AppController {
-    constructor(env, queueService, store, materialAssistant, assistantTts) {
+    constructor(env, queueService, store, materialAssistant, assistantTts, materialQuiz) {
         this.env = env;
         this.queueService = queueService;
         this.store = store;
         this.materialAssistant = materialAssistant;
         this.assistantTts = assistantTts;
+        this.materialQuiz = materialQuiz;
     }
     health() {
         return {
@@ -197,7 +201,8 @@ let AppController = class AppController {
             summaryPath: job.summaryPath,
             summary: job.summaryJson ? JSON.parse(job.summaryJson) : null,
             flashcardsPath: job.flashcardsPath,
-            flashcards: job.flashcardsJson ? JSON.parse(job.flashcardsJson) : null
+            flashcards: job.flashcardsJson ? JSON.parse(job.flashcardsJson) : null,
+            quiz: this.safePublicQuiz(job.quizJson)
         };
     }
     async getFullTranscript(jobId, response) {
@@ -533,6 +538,95 @@ let AppController = class AppController {
         response.status(common_1.HttpStatus.ACCEPTED);
         return result;
     }
+    async generateMaterialQuiz(body) {
+        const job = await this.store.repo.getJob(body.jobId);
+        if (!job) {
+            throw new common_1.NotFoundException(`Job ${body.jobId} not found`);
+        }
+        if (!job.transcriptText) {
+            throw new common_1.ConflictException('Transcript is not ready yet');
+        }
+        try {
+            const quiz = await this.materialQuiz.generateQuiz({
+                lectureId: job.lectureId,
+                transcriptText: job.transcriptText,
+                transcriptJson: job.transcriptJson,
+                count: body.count,
+                difficulty: body.difficulty,
+                language: body.language
+            });
+            await this.store.repo.saveQuiz(body.jobId, JSON.stringify(quiz));
+            return {
+                jobId: body.jobId,
+                quiz: this.materialQuiz.toPublicQuiz(quiz)
+            };
+        }
+        catch (error) {
+            const details = error instanceof Error ? error.message : String(error);
+            const errorCode = error instanceof material_quiz_service_1.QuizGenerationError
+                ? error.code
+                : 'QUIZ_AI_HTTP_ERROR';
+            throw new common_1.ServiceUnavailableException({
+                message: 'Quiz provider is temporarily unavailable',
+                errorCode,
+                details
+            });
+        }
+    }
+    async checkMaterialQuiz(body) {
+        const job = await this.store.repo.getJob(body.jobId);
+        if (!job) {
+            throw new common_1.NotFoundException(`Job ${body.jobId} not found`);
+        }
+        if (!job.quizJson) {
+            throw new common_1.ConflictException('Quiz is not generated yet');
+        }
+        let quiz;
+        try {
+            quiz = this.materialQuiz.parseStoredQuiz(job.quizJson);
+        }
+        catch {
+            throw new common_1.ConflictException('Stored quiz payload is invalid');
+        }
+        const answers = this.materialQuiz.parseAnswers(body.answers);
+        const evaluation = this.materialQuiz.gradeQuiz(quiz, answers);
+        return {
+            jobId: body.jobId,
+            score: {
+                total: evaluation.total,
+                correct: evaluation.correct,
+                percentage: evaluation.percentage
+            },
+            results: evaluation.results
+        };
+    }
+    async getMaterialQuizStats(body) {
+        const job = await this.store.repo.getJob(body.jobId);
+        if (!job) {
+            throw new common_1.NotFoundException(`Job ${body.jobId} not found`);
+        }
+        if (!job.quizJson) {
+            throw new common_1.ConflictException('Quiz is not generated yet');
+        }
+        let quiz;
+        try {
+            quiz = this.materialQuiz.parseStoredQuiz(job.quizJson);
+        }
+        catch {
+            throw new common_1.ConflictException('Stored quiz payload is invalid');
+        }
+        const answers = this.materialQuiz.parseAnswers(body.answers);
+        const evaluation = this.materialQuiz.gradeQuiz(quiz, answers);
+        const stats = this.materialQuiz.buildFinalStats(quiz, evaluation);
+        return {
+            jobId: body.jobId,
+            score: stats.score,
+            answered: stats.answered,
+            wrongCount: stats.wrongCount,
+            needsWork: stats.needsWork,
+            results: evaluation.results
+        };
+    }
     async requestFlashcardsGeneration(jobId, count) {
         const job = await this.store.repo.getJob(jobId);
         if (!job) {
@@ -675,6 +769,17 @@ let AppController = class AppController {
             FAILED: 100
         };
         return map[status] ?? 0;
+    }
+    safePublicQuiz(quizJson) {
+        if (!quizJson) {
+            return null;
+        }
+        try {
+            return this.materialQuiz.toPublicQuiz(this.materialQuiz.parseStoredQuiz(quizJson));
+        }
+        catch {
+            return null;
+        }
     }
 };
 exports.AppController = AppController;
@@ -826,12 +931,34 @@ __decorate([
     __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
 ], AppController.prototype, "generateFlashcardsByJobId", null);
+__decorate([
+    (0, common_1.Post)('/api/v1/tests/generate'),
+    __param(0, (0, common_1.Body)(new zod_validation_pipe_1.ZodValidationPipe(generate_quiz_request_schema_1.GenerateQuizRequestSchema))),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], AppController.prototype, "generateMaterialQuiz", null);
+__decorate([
+    (0, common_1.Post)('/api/v1/tests/check'),
+    __param(0, (0, common_1.Body)(new zod_validation_pipe_1.ZodValidationPipe(check_quiz_answers_request_schema_1.CheckQuizAnswersRequestSchema))),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], AppController.prototype, "checkMaterialQuiz", null);
+__decorate([
+    (0, common_1.Post)('/api/v1/tests/stats'),
+    __param(0, (0, common_1.Body)(new zod_validation_pipe_1.ZodValidationPipe(check_quiz_answers_request_schema_1.CheckQuizAnswersRequestSchema))),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], AppController.prototype, "getMaterialQuizStats", null);
 exports.AppController = AppController = __decorate([
     (0, common_1.Controller)(),
     __param(0, (0, common_1.Inject)(config_1.APP_ENV)),
     __metadata("design:paramtypes", [Object, queue_service_1.QueueService,
         job_store_service_1.JobStoreService,
         material_assistant_service_1.MaterialAssistantService,
-        assistant_tts_service_1.AssistantTtsService])
+        assistant_tts_service_1.AssistantTtsService,
+        material_quiz_service_1.MaterialQuizService])
 ], AppController);
 //# sourceMappingURL=app.controller.js.map

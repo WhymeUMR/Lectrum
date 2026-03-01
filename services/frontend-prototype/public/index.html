@@ -57,7 +57,9 @@
     #highlights-output,
     #flashcards-output,
     #transcript-output,
-    #recap-text-output {
+    #recap-text-output,
+    #quiz-score-output,
+    #quiz-progress-output {
       white-space: pre-wrap;
     }
 
@@ -80,6 +82,27 @@
       background: #111;
       color: #fff;
     }
+
+    .quiz-question {
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 8px;
+      margin-top: 8px;
+    }
+
+    .quiz-question p {
+      margin: 6px 0;
+    }
+
+    .quiz-feedback-correct {
+      color: #0b6b2f;
+      font-weight: 600;
+    }
+
+    .quiz-feedback-wrong {
+      color: #a40000;
+      font-weight: 600;
+    }
   </style>
 </head>
 
@@ -92,6 +115,7 @@
     <a href="#assistant">Помощник</a>
     <a href="#recap-audio">Пересказ + озвучка</a>
     <a href="#flashcards">Карточки</a>
+    <a href="#tests">Тесты</a>
   </nav>
 
   <main>
@@ -169,6 +193,31 @@
       </form>
       <div id="flashcards-output">Пока нет.</div>
     </section>
+
+    <section id="tests">
+      <h2>Тесты по лекции</h2>
+      <form id="quiz-generate-form">
+        <label for="quiz-count">Количество вопросов (1-20):</label>
+        <input id="quiz-count" name="quiz-count" type="number" min="1" max="20" value="5" required />
+        <label for="quiz-difficulty">Сложность:</label>
+        <select id="quiz-difficulty" name="quiz-difficulty">
+          <option value="easy">easy</option>
+          <option value="medium" selected>medium</option>
+          <option value="hard">hard</option>
+        </select>
+        <label for="quiz-language">Язык:</label>
+        <input id="quiz-language" name="quiz-language" type="text" value="ru" minlength="2" maxlength="10" required />
+        <button id="quiz-generate-btn" type="submit" disabled>Сгенерировать тест</button>
+      </form>
+
+      <form id="quiz-check-form">
+        <button id="quiz-check-btn" type="submit" disabled>Показать итоговую статистику</button>
+      </form>
+
+      <div id="quiz-output">Тест пока не сгенерирован.</div>
+      <div id="quiz-progress-output">Прогресс: 0/0</div>
+      <div id="quiz-score-output">Пока нет.</div>
+    </section>
   </main>
 
   <script>
@@ -204,8 +253,20 @@
     const flashcardsOutput = document.getElementById('flashcards-output');
     const flashcardsBtn = document.getElementById('flashcards-btn');
     const cardsCountInput = document.getElementById('cards-count');
+    const quizGenerateForm = document.getElementById('quiz-generate-form');
+    const quizCheckForm = document.getElementById('quiz-check-form');
+    const quizGenerateBtn = document.getElementById('quiz-generate-btn');
+    const quizCheckBtn = document.getElementById('quiz-check-btn');
+    const quizCountInput = document.getElementById('quiz-count');
+    const quizDifficultyInput = document.getElementById('quiz-difficulty');
+    const quizLanguageInput = document.getElementById('quiz-language');
+    const quizOutput = document.getElementById('quiz-output');
+    const quizProgressOutput = document.getElementById('quiz-progress-output');
+    const quizScoreOutput = document.getElementById('quiz-score-output');
 
     let currentJobId = null;
+    let currentQuiz = null;
+    let currentQuizAnswers = new Map();
     let recapAudioBlobUrl = null;
     let voicePreviewBlobUrl = null;
     let selectedTtsVoiceId = '';
@@ -325,6 +386,139 @@
         list.appendChild(li);
       }
       flashcardsOutput.appendChild(list);
+    }
+
+    function setQuiz(quiz) {
+      currentQuiz = quiz && Array.isArray(quiz.questions) ? quiz : null;
+      currentQuizAnswers = new Map();
+      quizOutput.innerHTML = '';
+      quizScoreOutput.textContent = 'Пока нет.';
+      if (!currentQuiz) {
+        quizOutput.textContent = 'Тест пока не сгенерирован.';
+        quizProgressOutput.textContent = 'Прогресс: 0/0';
+        quizCheckBtn.disabled = true;
+        return;
+      }
+
+      const meta = document.createElement('p');
+      meta.textContent = `Всего вопросов: ${currentQuiz.questions.length}. Сложность: ${currentQuiz.difficulty || 'medium'}. Язык: ${currentQuiz.language || 'ru'}.`;
+      quizOutput.appendChild(meta);
+
+      currentQuiz.questions.forEach((question, index) => {
+        const container = document.createElement('div');
+        container.className = 'quiz-question';
+        container.dataset.questionId = String(question.id || '');
+        container.dataset.questionType = String(question.type || '');
+
+        const title = document.createElement('p');
+        title.textContent = `${index + 1}. ${question.prompt || ''}`;
+        container.appendChild(title);
+
+        if (question.type === 'single_choice' || question.type === 'multiple_choice') {
+          const options = Array.isArray(question.options) ? question.options : [];
+          options.forEach((option) => {
+            const label = document.createElement('label');
+            label.style.display = 'block';
+            const input = document.createElement('input');
+            input.type = question.type === 'single_choice' ? 'radio' : 'checkbox';
+            input.name = `q-${question.id}`;
+            input.value = String(option.id || '');
+            label.appendChild(input);
+            label.append(` ${option.text || ''}`);
+            container.appendChild(label);
+          });
+        } else {
+          const text = document.createElement('input');
+          text.type = 'text';
+          text.name = `q-${question.id}`;
+          text.placeholder = 'Введите короткий ответ';
+          text.maxLength = 1000;
+          container.appendChild(text);
+        }
+
+        const submitBtn = document.createElement('button');
+        submitBtn.type = 'button';
+        submitBtn.textContent = 'Ответить';
+        submitBtn.style.marginTop = '8px';
+        container.appendChild(submitBtn);
+
+        const feedback = document.createElement('p');
+        feedback.textContent = 'Ответ пока не отправлен.';
+        container.appendChild(feedback);
+
+        submitBtn.addEventListener('click', async () => {
+          setError('');
+          if (!currentJobId) {
+            setError('Сначала загрузите и обработайте аудио');
+            return;
+          }
+
+          const answer = collectQuizAnswer(question);
+          if (!answer) {
+            feedback.textContent = 'Выберите вариант или введите ответ перед отправкой.';
+            feedback.className = 'quiz-feedback-wrong';
+            return;
+          }
+
+          try {
+            submitBtn.disabled = true;
+            setStatus(`Проверяем ответ на вопрос ${index + 1}...`);
+            const data = await requestQuizCheck(currentJobId, [answer]);
+            const results = Array.isArray(data?.results) ? data.results : [];
+            const item = results.find((row) => row && row.questionId === question.id);
+            if (!item) {
+              throw new Error('Ответ по вопросу не найден в результате проверки');
+            }
+
+            currentQuizAnswers.set(question.id, answer);
+            const mark = item.correct ? 'Верно' : 'Неверно';
+            const details = [
+              `${mark}. ${item.explanation || ''}`.trim(),
+              item.expectedAnswer ? `Ожидалось: ${item.expectedAnswer}` : '',
+              item.userAnswer ? `Ваш ответ: ${item.userAnswer}` : ''
+            ].filter(Boolean);
+            feedback.textContent = details.join(' ');
+            feedback.className = item.correct ? 'quiz-feedback-correct' : 'quiz-feedback-wrong';
+            updateQuizProgress();
+            setStatus('COMPLETED');
+          } catch (error) {
+            setStatus('Ошибка');
+            setError(error instanceof Error ? error.message : String(error));
+          } finally {
+            submitBtn.disabled = false;
+          }
+        });
+
+        quizOutput.appendChild(container);
+      });
+      updateQuizProgress();
+    }
+
+    function collectQuizAnswer(question) {
+      const qid = String(question?.id || '').trim();
+      if (!qid) return null;
+      if (question.type === 'single_choice' || question.type === 'multiple_choice') {
+        const selected = Array.from(quizOutput.querySelectorAll(`input[name="q-${qid}"]:checked`))
+          .map((node) => String(node.value || '').trim())
+          .filter(Boolean);
+        if (!selected.length) return null;
+        return { questionId: qid, selectedOptionIds: selected };
+      }
+      const input = quizOutput.querySelector(`input[name="q-${qid}"]`);
+      const answerText = input ? String(input.value || '').trim() : '';
+      if (!answerText) return null;
+      return { questionId: qid, answerText };
+    }
+
+    function collectQuizAnswers() {
+      return Array.from(currentQuizAnswers.values());
+    }
+
+    function updateQuizProgress() {
+      const total = currentQuiz && Array.isArray(currentQuiz.questions) ? currentQuiz.questions.length : 0;
+      const answered = currentQuizAnswers.size;
+      quizProgressOutput.textContent = `Прогресс: ${answered}/${total}`;
+      quizCheckBtn.disabled = !(total > 0 && answered === total);
     }
 
     function createDefaultSessionId() {
@@ -639,6 +833,53 @@
       return true;
     }
 
+    async function requestQuizGeneration(jobId, payload) {
+      const res = await fetch('/api/v1/tests/generate', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          jobId,
+          count: payload.count,
+          difficulty: payload.difficulty,
+          language: payload.language
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const details = data?.details ? `\n${data.details}` : '';
+        throw new Error((data?.errorCode || data?.message || 'Ошибка генерации теста') + details);
+      }
+      return data;
+    }
+
+    async function requestQuizCheck(jobId, answers) {
+      const res = await fetch('/api/v1/tests/check', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ jobId, answers })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const details = data?.details ? `\n${data.details}` : '';
+        throw new Error((data?.errorCode || data?.message || 'Ошибка проверки теста') + details);
+      }
+      return data;
+    }
+
+    async function requestQuizStats(jobId, answers) {
+      const res = await fetch('/api/v1/tests/stats', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ jobId, answers })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const details = data?.details ? `\n${data.details}` : '';
+        throw new Error((data?.errorCode || data?.message || 'Ошибка итоговой статистики теста') + details);
+      }
+      return data;
+    }
+
     async function pollUntilReady(path, description, maxAttempts = 180, delayMs = 1500) {
       for (let i = 0; i < maxAttempts; i++) {
         const res = await fetch(path);
@@ -694,6 +935,7 @@
       setSummary(null);
       setAssistant(null);
       setFlashcards(null);
+      setQuiz(null);
       recapTextOutput.textContent = 'Пока нет.';
       if (recapAudioBlobUrl) {
         URL.revokeObjectURL(recapAudioBlobUrl);
@@ -709,6 +951,8 @@
       assistantBtn.disabled = true;
       recapAudioBtn.disabled = true;
       recapKaraokeBtn.disabled = true;
+      quizGenerateBtn.disabled = true;
+      quizCheckBtn.disabled = true;
       currentJobId = null;
 
       const file = fileInput.files && fileInput.files[0];
@@ -751,6 +995,10 @@
         assistantBtn.disabled = false;
         recapAudioBtn.disabled = false;
         recapKaraokeBtn.disabled = false;
+        quizGenerateBtn.disabled = false;
+        if (finalData && finalData.quiz) {
+          setQuiz(finalData.quiz);
+        }
 
         await loadTranscript(jobId);
       } catch (error) {
@@ -830,6 +1078,108 @@
       } catch (error) {
         setStatus('Ошибка');
         setError(error instanceof Error ? error.message : String(error));
+      }
+    });
+
+    quizGenerateForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      setError('');
+      if (!currentJobId) {
+        setError('Сначала загрузите и обработайте аудио');
+        return;
+      }
+
+      const count = Number(quizCountInput.value || 5);
+      if (!Number.isInteger(count) || count < 1 || count > 20) {
+        setError('Количество вопросов должно быть от 1 до 20');
+        return;
+      }
+
+      const difficulty = String(quizDifficultyInput.value || 'medium').trim();
+      if (!['easy', 'medium', 'hard'].includes(difficulty)) {
+        setError('Сложность должна быть easy, medium или hard');
+        return;
+      }
+
+      const language = String(quizLanguageInput.value || 'ru').trim();
+      if (language.length < 2 || language.length > 10) {
+        setError('Язык должен быть длиной от 2 до 10 символов');
+        return;
+      }
+
+      try {
+        quizGenerateBtn.disabled = true;
+        quizCheckBtn.disabled = true;
+        setStatus('Генерируем тест...');
+        const data = await requestQuizGeneration(currentJobId, { count, difficulty, language });
+        setQuiz(data.quiz);
+        setStatus('COMPLETED');
+      } catch (error) {
+        setStatus('Ошибка');
+        setError(error instanceof Error ? error.message : String(error));
+      } finally {
+        if (currentJobId) {
+          quizGenerateBtn.disabled = false;
+        }
+      }
+    });
+
+    quizCheckForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      setError('');
+      if (!currentJobId) {
+        setError('Сначала загрузите и обработайте аудио');
+        return;
+      }
+      if (!currentQuiz) {
+        setError('Сначала сгенерируйте тест');
+        return;
+      }
+
+      const answers = collectQuizAnswers();
+      const totalQuestions = currentQuiz && Array.isArray(currentQuiz.questions) ? currentQuiz.questions.length : 0;
+      if (!answers.length || answers.length !== totalQuestions) {
+        setError('Сначала отправьте ответы по всем вопросам через кнопку "Ответить"');
+        return;
+      }
+
+      try {
+        quizCheckBtn.disabled = true;
+        setStatus('Проверяем ответы...');
+        const data = await requestQuizStats(currentJobId, answers);
+        const score = data && data.score ? data.score : null;
+        const results = Array.isArray(data?.results) ? data.results : [];
+        const needsWork = Array.isArray(data?.needsWork) ? data.needsWork : [];
+        const lines = [];
+        lines.push(`Результат: ${score?.correct || 0}/${score?.total || 0} (${score?.percentage || 0}%)`);
+        lines.push(`Отвечено: ${Number(data?.answered || 0)}/${score?.total || 0}`);
+        lines.push('');
+        if (needsWork.length === 0) {
+          lines.push('Что подтянуть: ошибок нет, все ответы верные.');
+          lines.push('');
+        } else {
+          lines.push('Что подтянуть:');
+          needsWork.slice(0, 7).forEach((item, index) => {
+            lines.push(`${index + 1}. ${item.topic || item.questionId}: ${item.recommendation || 'Повторить тему.'}`);
+          });
+          lines.push('');
+        }
+        results.forEach((item, index) => {
+          const mark = item.correct ? '✓' : '✗';
+          lines.push(`${index + 1}. ${mark} ${item.questionId}`);
+          lines.push(`   Ваш ответ: ${item.userAnswer || '—'}`);
+          lines.push(`   Ожидалось: ${item.expectedAnswer || '—'}`);
+          lines.push(`   Комментарий: ${item.explanation || '—'}`);
+        });
+        quizScoreOutput.textContent = lines.join('\n');
+        setStatus('COMPLETED');
+      } catch (error) {
+        setStatus('Ошибка');
+        setError(error instanceof Error ? error.message : String(error));
+      } finally {
+        if (currentQuiz) {
+          quizCheckBtn.disabled = false;
+        }
       }
     });
 

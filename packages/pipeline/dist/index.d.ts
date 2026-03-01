@@ -34,6 +34,7 @@ export interface JobRecord {
     flashcardsJson: string | null;
     summaryPath: string | null;
     summaryJson: string | null;
+    quizJson: string | null;
     errorCode: string | null;
     errorMessage: string | null;
     requestedLanguage: string;
@@ -62,6 +63,7 @@ export declare class PipelineRepository {
     saveFlashcards(jobId: string, flashcardsPath: string, flashcardsJson: string): Promise<void>;
     saveSummary(jobId: string, summaryPath: string, summaryJson: string): Promise<void>;
     saveHighlights(jobId: string, highlightsPath: string, highlightsJson: string): Promise<void>;
+    saveQuiz(jobId: string, quizJson: string): Promise<void>;
     getJob(jobId: string): Promise<JobRecord | null>;
 }
 export declare function writeArtifact(artifactsRoot: string, relativePath: string, content: Buffer | string): Promise<string>;

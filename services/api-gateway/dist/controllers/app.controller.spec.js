@@ -8,6 +8,7 @@ const strict_1 = __importDefault(require("node:assert/strict"));
 const app_controller_1 = require("./app.controller");
 const common_1 = require("@nestjs/common");
 const material_assistant_service_1 = require("../services/material-assistant.service");
+const material_quiz_service_1 = require("../services/material-quiz.service");
 (0, node_test_1.describe)('AppController', () => {
     let controller;
     let mockQueueService;
@@ -15,6 +16,7 @@ const material_assistant_service_1 = require("../services/material-assistant.ser
     let mockEnv;
     let mockAssistantService;
     let mockAssistantTtsService;
+    let mockQuizService;
     mockEnv = {
         SERVICE_NAME: 'api-gateway',
         APP_ENV: 'test',
@@ -48,12 +50,68 @@ const material_assistant_service_1 = require("../services/material-assistant.ser
             chunks: 1
         })
     };
+    mockQuizService = {
+        generateQuiz: async () => ({
+            schemaVersion: '1.0',
+            generatedAt: new Date().toISOString(),
+            language: 'ru',
+            difficulty: 'medium',
+            questions: [
+                {
+                    id: 'q1',
+                    type: 'single_choice',
+                    prompt: 'Что такое фотосинтез?',
+                    options: [
+                        { id: 'a', text: 'Процесс синтеза органики из света' },
+                        { id: 'b', text: 'Тип деления клетки' }
+                    ],
+                    correctOptionIds: ['a'],
+                    explanation: 'Фотосинтез преобразует световую энергию.'
+                }
+            ]
+        }),
+        toPublicQuiz: (quiz) => ({
+            schemaVersion: quiz.schemaVersion,
+            generatedAt: quiz.generatedAt,
+            language: quiz.language,
+            difficulty: quiz.difficulty,
+            questions: quiz.questions.map((question) => ({
+                id: question.id,
+                type: question.type,
+                prompt: question.prompt,
+                options: question.options
+            }))
+        }),
+        parseStoredQuiz: (value) => JSON.parse(value),
+        parseAnswers: (answers) => answers,
+        gradeQuiz: () => ({
+            total: 1,
+            correct: 1,
+            percentage: 100,
+            results: [
+                {
+                    questionId: 'q1',
+                    correct: true,
+                    explanation: 'Верно',
+                    expectedAnswer: 'a',
+                    userAnswer: 'a'
+                }
+            ]
+        }),
+        buildFinalStats: () => ({
+            score: { total: 1, correct: 1, percentage: 100 },
+            answered: 1,
+            wrongCount: 0,
+            needsWork: []
+        })
+    };
     mockJobStore = {
         repo: {
             getActiveJob: async () => null,
             createJob: async () => { },
             updateStatus: async () => { },
             saveSummary: async () => { },
+            saveQuiz: async () => { },
             appendAssistantMessage: async () => { },
             getAssistantHistory: async () => [],
             trimAssistantHistory: async () => { },
@@ -73,7 +131,8 @@ const material_assistant_service_1 = require("../services/material-assistant.ser
                         summaryPath: '/s-path',
                         summaryJson: JSON.stringify({ title: 't', duration: '00:00:10', smart_reading_time: '3 min', executive_summary: 'Очень краткая сводка по лекции и ее смыслу.', top_takeaways: ['a long enough takeaway', 'another meaningful takeaway', 'third meaningful takeaway'], material_insights: [{ kind: 'concept', title: 'Главная идея', importance: 'Показывает центральный тезис лекции.' }, { kind: 'example', title: 'Практический пример', importance: 'Позволяет применить идею на практике.' }, { kind: 'concept', title: 'Итоговый вывод', importance: 'Фиксирует финальную мысль лекции.' }], entities: { people: [], concepts: [] } }),
                         flashcardsPath: null,
-                        flashcardsJson: null
+                        flashcardsJson: null,
+                        quizJson: null
                     };
                 if (id === '456')
                     return { jobId: '456', lectureId: 'l-456', status: 'QUEUED' };
@@ -83,7 +142,7 @@ const material_assistant_service_1 = require("../services/material-assistant.ser
             }
         }
     };
-    controller = new app_controller_1.AppController(mockEnv, mockQueueService, mockJobStore, mockAssistantService, mockAssistantTtsService);
+    controller = new app_controller_1.AppController(mockEnv, mockQueueService, mockJobStore, mockAssistantService, mockAssistantTtsService, mockQuizService);
     (0, node_test_1.test)('health endpoint returns config injected', () => {
         const res = controller.health();
         strict_1.default.strictEqual(res.status, 'ok');
@@ -260,6 +319,135 @@ const material_assistant_service_1 = require("../services/material-assistant.ser
         mockJobStore.repo.getJob = async () => ({ jobId: '1', lectureId: 'l-1', status: 'QUEUED', transcriptText: null });
         const mockResponse = { status: () => mockResponse };
         await strict_1.default.rejects(() => controller.generateFlashcards('1', { count: 2 }, mockResponse), (e) => e instanceof common_1.ConflictException);
+    });
+    (0, node_test_1.test)('generateMaterialQuiz returns public quiz and stores it', async () => {
+        let savedQuizJson = '';
+        mockJobStore.repo.getJob = async (id) => {
+            if (id !== 'quiz-source')
+                return null;
+            return {
+                jobId: 'quiz-source',
+                lectureId: 'l-quiz',
+                status: 'COMPLETED',
+                transcriptText: 'text',
+                transcriptJson: JSON.stringify({ duration: 10, text: 'text', segments: [] })
+            };
+        };
+        mockJobStore.repo.saveQuiz = async (_jobId, quizJson) => {
+            savedQuizJson = quizJson;
+        };
+        const res = await controller.generateMaterialQuiz({
+            jobId: 'quiz-source',
+            count: 1,
+            difficulty: 'medium',
+            language: 'ru'
+        });
+        strict_1.default.equal(res.jobId, 'quiz-source');
+        strict_1.default.equal(Array.isArray(res.quiz.questions), true);
+        strict_1.default.equal(savedQuizJson.length > 0, true);
+    });
+    (0, node_test_1.test)('generateMaterialQuiz maps provider errors to 503 with deterministic code', async () => {
+        mockJobStore.repo.getJob = async (id) => {
+            if (id !== 'quiz-source-err')
+                return null;
+            return {
+                jobId: 'quiz-source-err',
+                lectureId: 'l-quiz',
+                status: 'COMPLETED',
+                transcriptText: 'text',
+                transcriptJson: JSON.stringify({ duration: 10, text: 'text', segments: [] })
+            };
+        };
+        mockQuizService.generateQuiz = async () => {
+            throw new material_quiz_service_1.QuizGenerationError('QUIZ_AI_INVALID_RESPONSE', 'schema mismatch');
+        };
+        await strict_1.default.rejects(() => controller.generateMaterialQuiz({
+            jobId: 'quiz-source-err',
+            count: 1,
+            difficulty: 'medium',
+            language: 'ru'
+        }), (e) => e instanceof common_1.ServiceUnavailableException);
+    });
+    (0, node_test_1.test)('checkMaterialQuiz returns score and explanations', async () => {
+        const quizPayload = {
+            schemaVersion: '1.0',
+            generatedAt: new Date().toISOString(),
+            language: 'ru',
+            difficulty: 'medium',
+            questions: [
+                {
+                    id: 'q1',
+                    type: 'single_choice',
+                    prompt: 'test',
+                    options: [{ id: 'a', text: 'A' }, { id: 'b', text: 'B' }],
+                    correctOptionIds: ['a'],
+                    explanation: 'exp'
+                }
+            ]
+        };
+        const originalGetJob = mockJobStore.repo.getJob;
+        mockJobStore.repo.getJob = async (id) => {
+            if (id !== 'quiz-job')
+                return originalGetJob(id);
+            return {
+                jobId: 'quiz-job',
+                lectureId: 'l-q',
+                status: 'COMPLETED',
+                transcriptText: 'text',
+                quizJson: JSON.stringify(quizPayload)
+            };
+        };
+        const res = await controller.checkMaterialQuiz({
+            jobId: 'quiz-job',
+            answers: [{ questionId: 'q1', selectedOptionIds: ['a'] }]
+        });
+        strict_1.default.equal(res.score.percentage, 100);
+        strict_1.default.equal(Array.isArray(res.results), true);
+    });
+    (0, node_test_1.test)('getMaterialQuizStats returns final stats and recommendations', async () => {
+        const quizPayload = {
+            schemaVersion: '1.0',
+            generatedAt: new Date().toISOString(),
+            language: 'ru',
+            difficulty: 'medium',
+            questions: [
+                {
+                    id: 'q1',
+                    type: 'single_choice',
+                    prompt: 'test',
+                    options: [{ id: 'a', text: 'A' }, { id: 'b', text: 'B' }],
+                    correctOptionIds: ['a'],
+                    explanation: 'exp'
+                }
+            ]
+        };
+        mockQuizService.buildFinalStats = () => ({
+            score: { total: 1, correct: 0, percentage: 0 },
+            answered: 1,
+            wrongCount: 1,
+            needsWork: [
+                { questionId: 'q1', topic: 'test', recommendation: 'Повторить тему test' }
+            ]
+        });
+        const originalGetJob = mockJobStore.repo.getJob;
+        mockJobStore.repo.getJob = async (id) => {
+            if (id !== 'quiz-stats-job')
+                return originalGetJob(id);
+            return {
+                jobId: 'quiz-stats-job',
+                lectureId: 'l-q',
+                status: 'COMPLETED',
+                transcriptText: 'text',
+                quizJson: JSON.stringify(quizPayload)
+            };
+        };
+        const res = await controller.getMaterialQuizStats({
+            jobId: 'quiz-stats-job',
+            answers: [{ questionId: 'q1', selectedOptionIds: ['b'] }]
+        });
+        strict_1.default.equal(res.score.percentage, 0);
+        strict_1.default.equal(res.wrongCount, 1);
+        strict_1.default.equal(Array.isArray(res.needsWork), true);
     });
     (0, node_test_1.test)('askMaterialAssistant returns answer with citations and confidence', async () => {
         mockJobStore.repo.getJob = async () => ({
