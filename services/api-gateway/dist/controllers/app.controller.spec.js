@@ -21,6 +21,7 @@ const material_quiz_service_1 = require("../services/material-quiz.service");
         SERVICE_NAME: 'api-gateway',
         APP_ENV: 'test',
         REDIS_QUEUE_PREFIX: 'testq',
+        UPLOAD_MAX_FILE_SIZE_BYTES: 1024,
         JOB_RESULT_POLL_INTERVAL_MS: 2000,
         JOB_EXPECTED_MAX_PROCESSING_MS: 900000
     };
@@ -183,6 +184,31 @@ const material_quiz_service_1 = require("../services/material-quiz.service");
     });
     (0, node_test_1.test)('createIngestionJob rejects unsupported upload extension and mime', async () => {
         await strict_1.default.rejects(() => controller.createIngestionJob({ sourceType: 'upload', requestedLanguage: 'ru', filename: 'bad.xyz', mimeType: 'application/xyz' }, { buffer: Buffer.from('x') }), (e) => e instanceof common_1.BadRequestException);
+    });
+    (0, node_test_1.test)('createIngestionJob rejects path-like filename', async () => {
+        await strict_1.default.rejects(() => controller.createIngestionJob({ sourceType: 'upload', requestedLanguage: 'ru', filename: '../lecture.mp3', mimeType: 'audio/mpeg' }, { buffer: Buffer.from('hello-audio') }), (e) => e instanceof common_1.BadRequestException);
+    });
+    (0, node_test_1.test)('createIngestionJob rejects mismatched mime and extension', async () => {
+        await strict_1.default.rejects(() => controller.createIngestionJob({ sourceType: 'upload', requestedLanguage: 'ru', filename: 'notes.pdf', mimeType: 'text/plain' }, { buffer: Buffer.from('hello-pdf-content') }), (e) => e instanceof common_1.BadRequestException);
+    });
+    (0, node_test_1.test)('createIngestionJob rejects invalid base64 payload', async () => {
+        await strict_1.default.rejects(() => controller.createIngestionJob({
+            sourceType: 'upload',
+            requestedLanguage: 'ru',
+            filename: 'lecture.mp3',
+            mimeType: 'audio/mpeg',
+            fileBase64: '***not-base64***'
+        }), (e) => e instanceof common_1.BadRequestException);
+    });
+    (0, node_test_1.test)('createIngestionJob rejects upload over max allowed size', async () => {
+        const oversized = Buffer.alloc(mockEnv.UPLOAD_MAX_FILE_SIZE_BYTES + 1, 1).toString('base64');
+        await strict_1.default.rejects(() => controller.createIngestionJob({
+            sourceType: 'upload',
+            requestedLanguage: 'ru',
+            filename: 'lecture.mp3',
+            mimeType: 'audio/mpeg',
+            fileBase64: oversized
+        }), (e) => e instanceof common_1.BadRequestException);
     });
     (0, node_test_1.test)('createIngestionJob marks job failed when enqueue errors', async () => {
         let setErrorCalled = false;

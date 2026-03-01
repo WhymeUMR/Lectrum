@@ -24,7 +24,7 @@ const EnvSchema = z.object({
   TRANSCRIPTION_CHUNK_DELAY_MS: z.coerce.number().int().positive().default(25),
   JOB_RESULT_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(2000),
   JOB_EXPECTED_MAX_PROCESSING_MS: z.coerce.number().int().positive().default(900000),
-  UPLOAD_MAX_FILE_SIZE_BYTES: z.coerce.number().int().positive().default(200 * 1024 * 1024),
+  UPLOAD_MAX_FILE_SIZE_BYTES: z.coerce.number().int().positive().default(100 * 1024 * 1024),
   TRANSCRIPTION_PROVIDER: z.enum(['mock', 'openai', 'deepgram']).default('mock'),
   TRANSCRIPTION_PROVIDER_TIMEOUT_MS: z.coerce.number().int().positive().default(120000),
   TRANSCRIPTION_PROVIDER_RETRY_ATTEMPTS: z.coerce.number().int().min(1).max(5).default(2),

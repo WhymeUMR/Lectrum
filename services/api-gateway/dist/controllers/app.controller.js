@@ -14,6 +14,7 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
+var AppController_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AppController = void 0;
 const node_crypto_1 = require("node:crypto");
@@ -37,7 +38,7 @@ const assistant_tts_preview_request_schema_1 = require("../dto/assistant-tts-pre
 const material_assistant_service_1 = require("../services/material-assistant.service");
 const assistant_tts_service_1 = require("../services/assistant-tts.service");
 const material_quiz_service_1 = require("../services/material-quiz.service");
-let AppController = class AppController {
+let AppController = AppController_1 = class AppController {
     constructor(env, queueService, store, materialAssistant, assistantTts, materialQuiz) {
         this.env = env;
         this.queueService = queueService;
@@ -67,7 +68,7 @@ let AppController = class AppController {
             throw new common_1.BadRequestException('sourceUrl is required for url sourceType');
         }
         if (parsed.sourceType === 'upload') {
-            this.assertSupportedUpload(parsed.filename, parsed.mimeType);
+            this.assertSupportedUpload(parsed.filename, parsed.mimeType, fileBase64);
         }
         const activeJob = await this.store.repo.getActiveJob();
         if (activeJob) {
@@ -117,23 +118,100 @@ let AppController = class AppController {
             queue: contracts_1.QUEUE_NAMES.ingestion
         };
     }
-    assertSupportedUpload(filename, mimeType) {
+    assertSupportedUpload(filename, mimeType, fileBase64) {
         const ext = node_path_1.default.extname(String(filename || '')).toLowerCase();
         const mime = String(mimeType || '').toLowerCase();
-        const allowedMimePrefix = ['audio/', 'video/'];
+        const normalizedFilename = String(filename || '').trim();
+        if (!normalizedFilename) {
+            throw new common_1.BadRequestException('filename is required for upload sourceType');
+        }
+        if (normalizedFilename.length > AppController_1.MAX_FILENAME_LENGTH) {
+            throw new common_1.BadRequestException(`filename is too long. Max length is ${AppController_1.MAX_FILENAME_LENGTH} characters`);
+        }
+        if (node_path_1.default.basename(normalizedFilename) !== normalizedFilename || normalizedFilename.includes('\0')) {
+            throw new common_1.BadRequestException('filename must not contain path separators or null bytes');
+        }
+        const allowedMimePrefixes = ['audio/', 'video/'];
         const allowedMimeSet = new Set([
             'application/pdf',
             'text/plain',
             'application/vnd.openxmlformats-officedocument.presentationml.presentation'
         ]);
-        const allowedExt = new Set(['.mp3', '.wav', '.m4a', '.ogg', '.aac', '.flac', '.mp4', '.mov', '.mkv', '.webm', '.pdf', '.txt', '.pptx']);
+        const allowedExt = new Set([
+            '.mp3',
+            '.wav',
+            '.m4a',
+            '.ogg',
+            '.aac',
+            '.flac',
+            '.mp4',
+            '.mov',
+            '.mkv',
+            '.webm',
+            '.pdf',
+            '.txt',
+            '.pptx'
+        ]);
+        const expectedMimeByExt = {
+            '.pdf': ['application/pdf'],
+            '.txt': ['text/plain'],
+            '.pptx': ['application/vnd.openxmlformats-officedocument.presentationml.presentation']
+        };
         const mimeOk = mime.length === 0 ||
-            allowedMimePrefix.some((prefix) => mime.startsWith(prefix)) ||
+            allowedMimePrefixes.some((prefix) => mime.startsWith(prefix)) ||
             allowedMimeSet.has(mime);
         const extOk = allowedExt.has(ext);
         if (!mimeOk && !extOk) {
             throw new common_1.BadRequestException('Unsupported file type. Allowed: audio/video, PDF, TXT, PPTX');
         }
+        if (ext in expectedMimeByExt && mime.length > 0 && !expectedMimeByExt[ext].includes(mime)) {
+            throw new common_1.BadRequestException(`mimeType ${mimeType} does not match filename extension ${ext}`);
+        }
+        const normalizedBase64 = this.normalizeBase64(fileBase64);
+        const maxBase64Length = this.maxBase64Length(this.env.UPLOAD_MAX_FILE_SIZE_BYTES);
+        if (normalizedBase64.length > maxBase64Length) {
+            throw new common_1.BadRequestException('Encoded file payload is too large');
+        }
+        const decoded = this.decodeStrictBase64(normalizedBase64);
+        if (decoded.byteLength < AppController_1.FILE_SIGNATURE_MIN_BYTES) {
+            throw new common_1.BadRequestException('Uploaded file is too small or empty');
+        }
+        if (decoded.byteLength > this.env.UPLOAD_MAX_FILE_SIZE_BYTES) {
+            throw new common_1.BadRequestException(`Uploaded file exceeds max size ${this.env.UPLOAD_MAX_FILE_SIZE_BYTES} bytes`);
+        }
+    }
+    normalizeBase64(payload) {
+        const value = String(payload || '').trim();
+        if (!value) {
+            throw new common_1.BadRequestException('fileBase64 must be a non-empty base64 string');
+        }
+        const marker = 'base64,';
+        const markerIndex = value.indexOf(marker);
+        const raw = markerIndex >= 0 ? value.slice(markerIndex + marker.length) : value;
+        const normalized = raw.replace(/\s+/g, '');
+        if (!normalized) {
+            throw new common_1.BadRequestException('fileBase64 must contain encoded data');
+        }
+        return normalized;
+    }
+    decodeStrictBase64(payload) {
+        if (!/^[A-Za-z0-9+/]*={0,2}$/.test(payload) || payload.length % 4 !== 0) {
+            throw new common_1.BadRequestException('fileBase64 is not valid base64');
+        }
+        const decoded = Buffer.from(payload, 'base64');
+        if (!decoded.byteLength) {
+            throw new common_1.BadRequestException('Uploaded file is empty');
+        }
+        const normalizedDecoded = decoded.toString('base64').replace(/=+$/, '');
+        const normalizedInput = payload.replace(/=+$/, '');
+        if (normalizedDecoded !== normalizedInput) {
+            throw new common_1.BadRequestException('fileBase64 is not valid base64');
+        }
+        return decoded;
+    }
+    maxBase64Length(maxBytes) {
+        // Base64 expands payload size by ~4/3 (+ small padding).
+        return Math.ceil((maxBytes * 4) / 3) + 8;
     }
     isAudioVideoJob(job) {
         const mime = String(job.mimeType ?? '').toLowerCase();
@@ -783,6 +861,8 @@ let AppController = class AppController {
     }
 };
 exports.AppController = AppController;
+AppController.MAX_FILENAME_LENGTH = 180;
+AppController.FILE_SIGNATURE_MIN_BYTES = 4;
 __decorate([
     (0, common_1.Get)('/health'),
     __metadata("design:type", Function),
@@ -799,7 +879,7 @@ __decorate([
     (0, common_1.Post)('/api/v1/lectures/ingest'),
     (0, common_1.UseInterceptors)((0, platform_express_1.FileInterceptor)('file', {
         limits: {
-            fileSize: Number(process.env.UPLOAD_MAX_FILE_SIZE_BYTES || 200 * 1024 * 1024)
+            fileSize: Number(process.env.UPLOAD_MAX_FILE_SIZE_BYTES || 100 * 1024 * 1024)
         }
     })),
     (0, common_1.UsePipes)(new zod_validation_pipe_1.ZodValidationPipe(create_ingestion_request_schema_1.CreateIngestionRequestSchema)),
@@ -952,7 +1032,7 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", Promise)
 ], AppController.prototype, "getMaterialQuizStats", null);
-exports.AppController = AppController = __decorate([
+exports.AppController = AppController = AppController_1 = __decorate([
     (0, common_1.Controller)(),
     __param(0, (0, common_1.Inject)(config_1.APP_ENV)),
     __metadata("design:paramtypes", [Object, queue_service_1.QueueService,

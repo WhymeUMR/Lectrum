@@ -12,6 +12,8 @@ export declare class AppController {
     private readonly materialAssistant;
     private readonly assistantTts;
     private readonly materialQuiz;
+    private static readonly MAX_FILENAME_LENGTH;
+    private static readonly FILE_SIGNATURE_MIN_BYTES;
     constructor(env: AppEnv, queueService: QueueService, store: JobStoreService, materialAssistant: MaterialAssistantService, assistantTts: AssistantTtsService, materialQuiz: MaterialQuizService);
     health(): {
         status: string;
@@ -40,6 +42,9 @@ export declare class AppController {
         queue: "lec.v1.ingestion";
     }>;
     private assertSupportedUpload;
+    private normalizeBase64;
+    private decodeStrictBase64;
+    private maxBase64Length;
     private isAudioVideoJob;
     getJob(jobId: string): Promise<import("@lecture/pipeline").JobRecord>;
     getJobResult(jobId: string, response: Response): Promise<{
