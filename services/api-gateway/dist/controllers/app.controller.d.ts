@@ -52,6 +52,14 @@ export declare class AppController {
         status: string;
         queue: "lec.v1.ingestion";
     }>;
+    createVideoIngestionJob(parsed: any, request?: {
+        user?: AuthUser;
+    }): Promise<{
+        jobId: `${string}-${string}-${string}-${string}-${string}`;
+        lectureId: `${string}-${string}-${string}-${string}-${string}`;
+        status: string;
+        queue: "lec.v1.ingestion";
+    }>;
     private createIngestionJobInternal;
     private filenameFromUrl;
     private assertSupportedUpload;

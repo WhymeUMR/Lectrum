@@ -29,6 +29,12 @@ class UrlParsingError extends Error {
         this.name = 'UrlParsingError';
     }
 }
+class VideoDownloadError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = 'VideoDownloadError';
+    }
+}
 async function parseUrlSource(serviceUrl, sourceUrl, language, timeoutMs) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -68,6 +74,47 @@ async function parseUrlSource(serviceUrl, sourceUrl, language, timeoutMs) {
         clearTimeout(timer);
     }
 }
+async function downloadVideoSource(serviceUrl, lectureId, sourceUrl, timeoutMs) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const response = await fetch(`${serviceUrl.replace(/\/+$/, '')}/api/v1/download`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ lectureId, url: sourceUrl }),
+            signal: controller.signal
+        });
+        if (!response.ok) {
+            const body = await response.text();
+            throw new VideoDownloadError(`video-parser-service returned ${response.status}: ${body || response.statusText}`);
+        }
+        const payload = (await response.json());
+        const storagePath = String(payload.storagePath ?? '').trim();
+        if (!storagePath) {
+            throw new VideoDownloadError('video-parser-service returned empty storagePath');
+        }
+        return {
+            lectureId: String(payload.lectureId ?? lectureId),
+            sourceUrl: String(payload.sourceUrl ?? sourceUrl),
+            storagePath,
+            filename: String(payload.filename ?? ''),
+            mimeType: String(payload.mimeType ?? 'application/octet-stream')
+        };
+    }
+    catch (error) {
+        if (error instanceof VideoDownloadError) {
+            throw error;
+        }
+        if (error instanceof DOMException && error.name === 'AbortError') {
+            throw new VideoDownloadError(`video-parser-service request timeout after ${timeoutMs}ms`);
+        }
+        const message = error instanceof Error ? error.message : String(error);
+        throw new VideoDownloadError(message);
+    }
+    finally {
+        clearTimeout(timer);
+    }
+}
 let IngestionProcessor = class IngestionProcessor {
     constructor(env) {
         this.env = env;
@@ -88,6 +135,7 @@ let IngestionProcessor = class IngestionProcessor {
             try {
                 await this.repo.updateStatus(payload.jobId, 'INGESTING');
                 let relativeStoragePath;
+                let resolvedMimeType = payload.mimeType;
                 if (payload.sourceType === 'upload') {
                     if (!payload.fileBase64) {
                         throw new Error('Missing fileBase64 for upload sourceType');
@@ -96,7 +144,7 @@ let IngestionProcessor = class IngestionProcessor {
                     relativeStoragePath = node_path_1.default.join('raw', `${payload.lectureId}_${safeName}`);
                     await (0, pipeline_1.writeArtifact)(this.env.ARTIFACTS_DIR, relativeStoragePath, (0, pipeline_1.decodeBase64Payload)(payload.fileBase64));
                 }
-                else {
+                else if (payload.sourceType === 'url') {
                     if (!payload.sourceUrl) {
                         throw new Error('Missing sourceUrl for url sourceType');
                     }
@@ -106,6 +154,18 @@ let IngestionProcessor = class IngestionProcessor {
                     const parsed = await parseUrlSource(this.env.URL_PARSER_SERVICE_URL, payload.sourceUrl, payload.requestedLanguage ?? 'ru', this.env.URL_PARSER_TIMEOUT_MS);
                     relativeStoragePath = node_path_1.default.join('raw', `${payload.lectureId}_url.txt`);
                     await (0, pipeline_1.writeArtifact)(this.env.ARTIFACTS_DIR, relativeStoragePath, parsed.text);
+                    resolvedMimeType = 'text/plain';
+                }
+                else {
+                    if (!payload.sourceUrl) {
+                        throw new Error('Missing sourceUrl for video_url sourceType');
+                    }
+                    if (!this.env.VIDEO_PARSER_SERVICE_URL) {
+                        throw new Error('VIDEO_PARSER_SERVICE_URL is required for video_url sourceType');
+                    }
+                    const downloaded = await downloadVideoSource(this.env.VIDEO_PARSER_SERVICE_URL, payload.lectureId, payload.sourceUrl, this.env.VIDEO_PARSER_TIMEOUT_MS);
+                    relativeStoragePath = downloaded.storagePath;
+                    resolvedMimeType = downloaded.mimeType || payload.mimeType;
                 }
                 await this.repo.setSourceStoragePath(payload.jobId, relativeStoragePath);
                 await this.repo.updateStatus(payload.jobId, 'INGESTED');
@@ -115,7 +175,7 @@ let IngestionProcessor = class IngestionProcessor {
                     sourceType: payload.sourceType,
                     sourceUrl: payload.sourceUrl,
                     storagePath: relativeStoragePath,
-                    mimeType: payload.sourceType === 'url' ? 'text/plain' : payload.mimeType,
+                    mimeType: resolvedMimeType,
                     language: payload.requestedLanguage ?? 'ru'
                 });
             }

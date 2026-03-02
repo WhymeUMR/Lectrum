@@ -52,7 +52,7 @@ export const QUEUE_POLICIES = {
 export const IngestionJobSchema = z.object({
   jobId: z.string().min(1),
   lectureId: z.string().min(1),
-  sourceType: z.enum(['upload', 'url']),
+  sourceType: z.enum(['upload', 'url', 'video_url']),
   sourceUrl: z.string().url().optional(),
   filename: z.string().min(1),
   mimeType: z.string().min(1).optional(),
@@ -64,7 +64,7 @@ export const IngestionJobSchema = z.object({
 export const TranscriptionJobSchema = z.object({
   jobId: z.string().min(1),
   lectureId: z.string().min(1),
-  sourceType: z.enum(['upload', 'url']),
+  sourceType: z.enum(['upload', 'url', 'video_url']),
   sourceUrl: z.string().url().optional(),
   storagePath: z.string().min(1),
   mimeType: z.string().min(1).optional(),

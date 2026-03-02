@@ -29,6 +29,7 @@ import { QueueService } from '../services/queue.service';
 import { JobStoreService } from '../services/job-store.service';
 import { CreateIngestionRequestSchema } from '../dto/create-ingestion-request.schema';
 import { CreateUrlIngestionRequestSchema } from '../dto/create-url-ingestion-request.schema';
+import { CreateVideoIngestionRequestSchema } from '../dto/create-video-ingestion-request.schema';
 import { ZodValidationPipe } from '../pipes/zod-validation.pipe';
 import { GenerateFlashcardsRequestSchema } from '../dto/generate-flashcards-request.schema';
 import { GenerateFlashcardsByJobRequestSchema } from '../dto/generate-flashcards-by-job-request.schema';
@@ -116,6 +117,22 @@ export class AppController {
     return this.createIngestionJobInternal(payload, undefined, request);
   }
 
+  @Post('/api/v1/lectures/ingest-video')
+  @UsePipes(new ZodValidationPipe(CreateVideoIngestionRequestSchema))
+  async createVideoIngestionJob(
+    @Body() parsed: any,
+    @Req() request?: { user?: AuthUser }
+  ) {
+    const payload = {
+      sourceType: 'video_url',
+      sourceUrl: parsed.sourceUrl,
+      filename: this.filenameFromUrl(parsed.sourceUrl),
+      mimeType: 'application/octet-stream',
+      requestedLanguage: parsed.requestedLanguage ?? 'ru'
+    };
+    return this.createIngestionJobInternal(payload, undefined, request);
+  }
+
   private async createIngestionJobInternal(
     parsed: any,
     fileBase64: string | undefined,
@@ -125,8 +142,8 @@ export class AppController {
     if (parsed.sourceType === 'upload' && !fileBase64) {
       throw new BadRequestException('file is required for upload sourceType');
     }
-    if (parsed.sourceType === 'url' && !parsed.sourceUrl) {
-      throw new BadRequestException('sourceUrl is required for url sourceType');
+    if ((parsed.sourceType === 'url' || parsed.sourceType === 'video_url') && !parsed.sourceUrl) {
+      throw new BadRequestException('sourceUrl is required for url/video_url sourceType');
     }
     if (parsed.sourceType === 'upload') {
       const requiredFileBase64 = fileBase64 ?? '';

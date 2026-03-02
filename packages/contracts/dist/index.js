@@ -50,7 +50,7 @@ exports.QUEUE_POLICIES = {
 exports.IngestionJobSchema = zod_1.z.object({
     jobId: zod_1.z.string().min(1),
     lectureId: zod_1.z.string().min(1),
-    sourceType: zod_1.z.enum(['upload', 'url']),
+    sourceType: zod_1.z.enum(['upload', 'url', 'video_url']),
     sourceUrl: zod_1.z.string().url().optional(),
     filename: zod_1.z.string().min(1),
     mimeType: zod_1.z.string().min(1).optional(),
@@ -61,7 +61,7 @@ exports.IngestionJobSchema = zod_1.z.object({
 exports.TranscriptionJobSchema = zod_1.z.object({
     jobId: zod_1.z.string().min(1),
     lectureId: zod_1.z.string().min(1),
-    sourceType: zod_1.z.enum(['upload', 'url']),
+    sourceType: zod_1.z.enum(['upload', 'url', 'video_url']),
     sourceUrl: zod_1.z.string().url().optional(),
     storagePath: zod_1.z.string().min(1),
     mimeType: zod_1.z.string().min(1).optional(),

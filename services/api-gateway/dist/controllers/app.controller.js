@@ -28,6 +28,7 @@ const queue_service_1 = require("../services/queue.service");
 const job_store_service_1 = require("../services/job-store.service");
 const create_ingestion_request_schema_1 = require("../dto/create-ingestion-request.schema");
 const create_url_ingestion_request_schema_1 = require("../dto/create-url-ingestion-request.schema");
+const create_video_ingestion_request_schema_1 = require("../dto/create-video-ingestion-request.schema");
 const zod_validation_pipe_1 = require("../pipes/zod-validation.pipe");
 const generate_flashcards_request_schema_1 = require("../dto/generate-flashcards-request.schema");
 const generate_flashcards_by_job_request_schema_1 = require("../dto/generate-flashcards-by-job-request.schema");
@@ -75,13 +76,23 @@ let AppController = AppController_1 = class AppController {
         };
         return this.createIngestionJobInternal(payload, undefined, request);
     }
+    async createVideoIngestionJob(parsed, request) {
+        const payload = {
+            sourceType: 'video_url',
+            sourceUrl: parsed.sourceUrl,
+            filename: this.filenameFromUrl(parsed.sourceUrl),
+            mimeType: 'application/octet-stream',
+            requestedLanguage: parsed.requestedLanguage ?? 'ru'
+        };
+        return this.createIngestionJobInternal(payload, undefined, request);
+    }
     async createIngestionJobInternal(parsed, fileBase64, request) {
         const currentUser = this.getCurrentUser(request);
         if (parsed.sourceType === 'upload' && !fileBase64) {
             throw new common_1.BadRequestException('file is required for upload sourceType');
         }
-        if (parsed.sourceType === 'url' && !parsed.sourceUrl) {
-            throw new common_1.BadRequestException('sourceUrl is required for url sourceType');
+        if ((parsed.sourceType === 'url' || parsed.sourceType === 'video_url') && !parsed.sourceUrl) {
+            throw new common_1.BadRequestException('sourceUrl is required for url/video_url sourceType');
         }
         if (parsed.sourceType === 'upload') {
             const requiredFileBase64 = fileBase64 ?? '';
@@ -935,6 +946,15 @@ __decorate([
     __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
 ], AppController.prototype, "createUrlIngestionJob", null);
+__decorate([
+    (0, common_1.Post)('/api/v1/lectures/ingest-video'),
+    (0, common_1.UsePipes)(new zod_validation_pipe_1.ZodValidationPipe(create_video_ingestion_request_schema_1.CreateVideoIngestionRequestSchema)),
+    __param(0, (0, common_1.Body)()),
+    __param(1, (0, common_1.Req)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", Promise)
+], AppController.prototype, "createVideoIngestionJob", null);
 __decorate([
     (0, common_1.Get)('/api/v1/jobs/:jobId'),
     __param(0, (0, common_1.Param)('jobId')),

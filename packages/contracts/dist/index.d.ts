@@ -103,7 +103,7 @@ export declare const QUEUE_POLICIES: {
 export declare const IngestionJobSchema: z.ZodObject<{
     jobId: z.ZodString;
     lectureId: z.ZodString;
-    sourceType: z.ZodEnum<["upload", "url"]>;
+    sourceType: z.ZodEnum<["upload", "url", "video_url"]>;
     sourceUrl: z.ZodOptional<z.ZodString>;
     filename: z.ZodString;
     mimeType: z.ZodOptional<z.ZodString>;
@@ -113,7 +113,7 @@ export declare const IngestionJobSchema: z.ZodObject<{
 }, "strip", z.ZodTypeAny, {
     jobId: string;
     lectureId: string;
-    sourceType: "upload" | "url";
+    sourceType: "upload" | "url" | "video_url";
     filename: string;
     requestedLanguage: string;
     uploadedAt: string;
@@ -123,7 +123,7 @@ export declare const IngestionJobSchema: z.ZodObject<{
 }, {
     jobId: string;
     lectureId: string;
-    sourceType: "upload" | "url";
+    sourceType: "upload" | "url" | "video_url";
     filename: string;
     uploadedAt: string;
     sourceUrl?: string | undefined;
@@ -134,7 +134,7 @@ export declare const IngestionJobSchema: z.ZodObject<{
 export declare const TranscriptionJobSchema: z.ZodObject<{
     jobId: z.ZodString;
     lectureId: z.ZodString;
-    sourceType: z.ZodEnum<["upload", "url"]>;
+    sourceType: z.ZodEnum<["upload", "url", "video_url"]>;
     sourceUrl: z.ZodOptional<z.ZodString>;
     storagePath: z.ZodString;
     mimeType: z.ZodOptional<z.ZodString>;
@@ -142,7 +142,7 @@ export declare const TranscriptionJobSchema: z.ZodObject<{
 }, "strip", z.ZodTypeAny, {
     jobId: string;
     lectureId: string;
-    sourceType: "upload" | "url";
+    sourceType: "upload" | "url" | "video_url";
     storagePath: string;
     language: string;
     sourceUrl?: string | undefined;
@@ -150,7 +150,7 @@ export declare const TranscriptionJobSchema: z.ZodObject<{
 }, {
     jobId: string;
     lectureId: string;
-    sourceType: "upload" | "url";
+    sourceType: "upload" | "url" | "video_url";
     storagePath: string;
     sourceUrl?: string | undefined;
     mimeType?: string | undefined;

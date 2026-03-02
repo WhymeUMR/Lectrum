@@ -1,6 +1,6 @@
 import { Pool } from 'pg';
 export type JobStatus = 'QUEUED' | 'INGESTING' | 'INGESTED' | 'TRANSCRIBING' | 'GENERATING_HIGHLIGHTS' | 'GENERATING_SUMMARY' | 'GENERATING_FLASHCARDS' | 'COMPLETED' | 'FAILED';
-export type SourceType = 'upload' | 'url';
+export type SourceType = 'upload' | 'url' | 'video_url';
 export type AssistantMessageRole = 'user' | 'assistant';
 export interface AssistantSessionMessage {
     role: AssistantMessageRole;

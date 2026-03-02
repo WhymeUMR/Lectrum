@@ -10,6 +10,7 @@ services=(
   "summary-worker:3105"
   "summary-fallback-worker:3106"
   "url-parser-service:3107"
+  "video-parser-service:3108"
   "frontend-prototype:80"
 )
 

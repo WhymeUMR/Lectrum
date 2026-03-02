@@ -13,7 +13,7 @@ export type JobStatus =
   | 'COMPLETED'
   | 'FAILED';
 
-export type SourceType = 'upload' | 'url';
+export type SourceType = 'upload' | 'url' | 'video_url';
 export type AssistantMessageRole = 'user' | 'assistant';
 
 export interface AssistantSessionMessage {

@@ -160,6 +160,11 @@
         <input id="source-url" name="source-url" type="url" placeholder="https://example.com/article" required />
         <button id="ingest-url-btn" type="submit">Обработать ссылку</button>
       </form>
+      <form id="video-form">
+        <label for="video-source-url">Ссылка на видео (YouTube/VK):</label>
+        <input id="video-source-url" name="video-source-url" type="url" placeholder="https://youtube.com/watch?v=..." required />
+        <button id="ingest-video-btn" type="submit">Обработать видео-ссылку</button>
+      </form>
 
       <h3>Статус</h3>
       <p id="status-output">Ожидание...</p>
@@ -272,6 +277,9 @@
     const urlForm = document.getElementById('url-form');
     const ingestUrlBtn = document.getElementById('ingest-url-btn');
     const sourceUrlInput = document.getElementById('source-url');
+    const videoForm = document.getElementById('video-form');
+    const ingestVideoBtn = document.getElementById('ingest-video-btn');
+    const videoSourceUrlInput = document.getElementById('video-source-url');
     const statusOutput = document.getElementById('status-output');
     const errorOutput = document.getElementById('error-output');
     const resultOutput = document.getElementById('result-output');
@@ -598,6 +606,8 @@
         fileInput.disabled = false;
         ingestUrlBtn.disabled = false;
         sourceUrlInput.disabled = false;
+        ingestVideoBtn.disabled = false;
+        videoSourceUrlInput.disabled = false;
         ttsVoiceRefreshBtn.disabled = false;
       } else {
         authStatusOutput.textContent = 'Не авторизован';
@@ -608,6 +618,8 @@
         fileInput.disabled = true;
         ingestUrlBtn.disabled = true;
         sourceUrlInput.disabled = true;
+        ingestVideoBtn.disabled = true;
+        videoSourceUrlInput.disabled = true;
         ttsVoiceRefreshBtn.disabled = true;
         setFeatureButtonsEnabled(false);
         ttsVoiceSelect.innerHTML = '<option value="">Войдите, чтобы загрузить голоса</option>';
@@ -1689,6 +1701,78 @@
         if (!ingestRes.ok) {
           setStatus(`Ошибка ingest: HTTP ${ingestRes.status}`);
           setError(ingestData.message || 'Ошибка при обработке ссылки');
+          return;
+        }
+
+        const jobId = ingestData.jobId;
+        currentJobId = jobId;
+        persistCurrentUserProgress();
+        setStatus(`Job создан: ${jobId}`);
+        const finalData = await pollUntilCompleted(jobId);
+        if (!finalData) return;
+
+        currentJobId = jobId;
+        persistCurrentUserProgress();
+        setFeatureButtonsEnabled(true);
+        if (finalData && finalData.quiz) {
+          setQuiz(finalData.quiz);
+        }
+
+        await loadTranscript(jobId);
+      } catch (error) {
+        setStatus('Ошибка');
+        setError(error instanceof Error ? error.message : String(error));
+      }
+    });
+
+    videoForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!isAuthenticated()) {
+        setError('Сначала выполните авторизацию');
+        return;
+      }
+      setError('');
+      setResult(null);
+      setTranscript(null);
+      setHighlights(null);
+      setSummary(null);
+      setAssistant(null);
+      setFlashcards(null);
+      setQuiz(null);
+      recapTextOutput.textContent = 'Пока нет.';
+      if (recapAudioBlobUrl) {
+        URL.revokeObjectURL(recapAudioBlobUrl);
+        recapAudioBlobUrl = null;
+      }
+      recapAudioPlayer.removeAttribute('src');
+      recapAudioPlayer.load();
+      karaokeOutput.textContent = 'Пока нет.';
+
+      setFeatureButtonsEnabled(false);
+      currentJobId = null;
+      persistCurrentUserProgress();
+
+      const sourceUrl = String(videoSourceUrlInput.value || '').trim();
+      if (!sourceUrl) {
+        setError('Введите ссылку на видео');
+        return;
+      }
+
+      try {
+        setStatus('Отправка видео-ссылки в backend...');
+        const ingestRes = await fetch('/api/v1/lectures/ingest-video', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            sourceUrl,
+            requestedLanguage: 'ru'
+          })
+        });
+
+        const ingestData = await ingestRes.json();
+        if (!ingestRes.ok) {
+          setStatus(`Ошибка ingest: HTTP ${ingestRes.status}`);
+          setError(ingestData.message || 'Ошибка при обработке видео-ссылки');
           return;
         }
 

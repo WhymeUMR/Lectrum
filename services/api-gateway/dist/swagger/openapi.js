@@ -114,7 +114,7 @@ function enhanceOpenApiDocument(document) {
         IngestionRequest: {
             type: 'object',
             properties: {
-                sourceType: { type: 'string', enum: ['upload', 'url'], example: 'upload' },
+                sourceType: { type: 'string', enum: ['upload', 'url', 'video_url'], example: 'upload' },
                 sourceUrl: { type: 'string', format: 'uri', nullable: true, example: 'https://example.com/lecture.mp4' },
                 filename: { type: 'string', example: 'lecture1.mp3' },
                 mimeType: { type: 'string', nullable: true, example: 'audio/mpeg' },
@@ -131,6 +131,22 @@ function enhanceOpenApiDocument(document) {
                 }
             },
             required: ['sourceType', 'filename']
+        },
+        UrlIngestionRequest: {
+            type: 'object',
+            properties: {
+                sourceUrl: { type: 'string', format: 'uri', example: 'https://example.com/article' },
+                requestedLanguage: { type: 'string', example: 'ru', default: 'ru' }
+            },
+            required: ['sourceUrl']
+        },
+        VideoIngestionRequest: {
+            type: 'object',
+            properties: {
+                sourceUrl: { type: 'string', format: 'uri', example: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' },
+                requestedLanguage: { type: 'string', example: 'ru', default: 'ru' }
+            },
+            required: ['sourceUrl']
         },
         IngestionAccepted: {
             type: 'object',
@@ -351,6 +367,86 @@ function enhanceOpenApiDocument(document) {
             },
             '413': {
                 description: 'Файл слишком большой',
+                content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+            },
+            '503': {
+                description: 'Очередь временно недоступна',
+                content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+            }
+        }
+    });
+    apply('/api/v1/lectures/ingest-url', 'post', {
+        tags: ['Ingestion'],
+        summary: 'Создать задачу обработки по URL',
+        description: 'Упрощённый endpoint для URL-источников. `filename` и `sourceType` формируются на сервере.',
+        security: [{ bearerAuth: [] }],
+        requestBody: {
+            required: true,
+            content: {
+                'application/json': {
+                    schema: { $ref: '#/components/schemas/UrlIngestionRequest' }
+                }
+            }
+        },
+        responses: {
+            '201': {
+                description: 'Задача создана и поставлена в очередь',
+                content: {
+                    'application/json': {
+                        schema: { $ref: '#/components/schemas/IngestionAccepted' }
+                    }
+                }
+            },
+            '400': {
+                description: 'Ошибка валидации URL',
+                content: { 'application/json': { schema: { $ref: '#/components/schemas/ValidationErrorResponse' } } }
+            },
+            '401': {
+                description: 'Нет токена авторизации',
+                content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+            },
+            '409': {
+                description: 'У пользователя уже есть активная задача обработки',
+                content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+            },
+            '503': {
+                description: 'Очередь временно недоступна',
+                content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+            }
+        }
+    });
+    apply('/api/v1/lectures/ingest-video', 'post', {
+        tags: ['Ingestion'],
+        summary: 'Создать задачу обработки по ссылке на видео',
+        description: 'Endpoint для видео-ссылок (например YouTube/VK). Видео скачивается отдельным микросервисом через yt_dlp и затем отправляется в обычный pipeline транскрибации.',
+        security: [{ bearerAuth: [] }],
+        requestBody: {
+            required: true,
+            content: {
+                'application/json': {
+                    schema: { $ref: '#/components/schemas/VideoIngestionRequest' }
+                }
+            }
+        },
+        responses: {
+            '201': {
+                description: 'Задача создана и поставлена в очередь',
+                content: {
+                    'application/json': {
+                        schema: { $ref: '#/components/schemas/IngestionAccepted' }
+                    }
+                }
+            },
+            '400': {
+                description: 'Ошибка валидации URL',
+                content: { 'application/json': { schema: { $ref: '#/components/schemas/ValidationErrorResponse' } } }
+            },
+            '401': {
+                description: 'Нет токена авторизации',
+                content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+            },
+            '409': {
+                description: 'У пользователя уже есть активная задача обработки',
                 content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
             },
             '503': {

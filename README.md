@@ -9,6 +9,7 @@
 - `transcription-worker`
 - `flashcard-worker`
 - `url-parser-service`
+- `video-parser-service`
 - `redis`
 - `postgres`
 
@@ -107,6 +108,7 @@ make health
 Защищённые endpoints:
 - все остальные `/api/v1/*` (например `POST /api/v1/lectures/ingest`, `GET /api/v1/jobs`, `GET /api/v1/jobs/:jobId/result`, assistant/tests/flashcards endpoints)
 - URL-only endpoint: `POST /api/v1/lectures/ingest-url` (`{ sourceUrl, requestedLanguage? }`)
+- Video URL endpoint: `POST /api/v1/lectures/ingest-video` (`{ sourceUrl, requestedLanguage? }`)
 - включая состояние пользователя:
   - `GET /api/v1/auth/state`
   - `POST /api/v1/auth/state`
@@ -154,6 +156,7 @@ Health endpoints:
 - `http://localhost:3102/health`
 - `http://localhost:3103/health`
 - `http://localhost:3107/health`
+- `http://localhost:3108/health`
 
 ## Проверки конфигурации перед деплоем
 
@@ -214,6 +217,19 @@ OPENAI_API_KEY=<your_openrouter_key>
 - `URL_PARSER_TIMEOUT_MS`
 - `CRAWL4AI_API_KEY` (если не задан, используется `OPENAI_API_KEY`)
 - `CRAWL4AI_LLM_PROVIDER` (пример: `openai/gpt-4.1-mini`)
+
+## Video parsing через yt_dlp
+
+Для видео-ссылок (`YouTube`, `VK Video` и другие поддерживаемые источники) `ingestion-service`
+вызывает `video-parser-service`, который скачивает медиа через `yt_dlp` в shared artifacts volume.
+После этого запускается обычная транскрибация существующим `transcription-worker`.
+
+Переменные:
+
+- `VIDEO_PARSER_SERVICE_URL` (по умолчанию `http://video-parser-service:8000`)
+- `VIDEO_PARSER_TIMEOUT_MS`
+- `VIDEO_PARSER_SOCKET_TIMEOUT_SEC`
+- `VIDEO_PARSER_FORMAT` (по умолчанию `bestaudio/best`)
 
 ## Deepgram (транскрибация)
 
