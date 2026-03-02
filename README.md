@@ -8,6 +8,7 @@
 - `ingestion-service`
 - `transcription-worker`
 - `flashcard-worker`
+- `url-parser-service`
 - `redis`
 - `postgres`
 
@@ -105,6 +106,7 @@ make health
 
 Защищённые endpoints:
 - все остальные `/api/v1/*` (например `POST /api/v1/lectures/ingest`, `GET /api/v1/jobs`, `GET /api/v1/jobs/:jobId/result`, assistant/tests/flashcards endpoints)
+- URL-only endpoint: `POST /api/v1/lectures/ingest-url` (`{ sourceUrl, requestedLanguage? }`)
 - включая состояние пользователя:
   - `GET /api/v1/auth/state`
   - `POST /api/v1/auth/state`
@@ -151,6 +153,7 @@ Health endpoints:
 - `http://localhost:3101/health`
 - `http://localhost:3102/health`
 - `http://localhost:3103/health`
+- `http://localhost:3107/health`
 
 ## Проверки конфигурации перед деплоем
 
@@ -199,6 +202,18 @@ OPENAI_API_KEY=<your_openrouter_key>
 
 Важно: транскрибация использует endpoint `/audio/transcriptions` и настраивается отдельно через
 `TRANSCRIPTION_*` переменные (или fallback на `OPENAI_*`).
+
+## URL parsing через crawl4ai
+
+Для URL-источников `ingestion-service` вызывает отдельный `url-parser-service`, который
+парсит страницу через `crawl4ai` и передаёт очищенный текст дальше в текущий pipeline.
+
+Переменные:
+
+- `URL_PARSER_SERVICE_URL` (по умолчанию `http://url-parser-service:8000`)
+- `URL_PARSER_TIMEOUT_MS`
+- `CRAWL4AI_API_KEY` (если не задан, используется `OPENAI_API_KEY`)
+- `CRAWL4AI_LLM_PROVIDER` (пример: `openai/gpt-4.1-mini`)
 
 ## Deepgram (транскрибация)
 

@@ -7,6 +7,66 @@ import { IngestionJobPayload, QUEUE_NAMES, QUEUE_POLICIES } from '@lecture/contr
 import { APP_ENV, AppEnv, SharedConfigModule, buildRedisConnection } from '@lecture/config';
 import { PipelineRepository, decodeBase64Payload, writeArtifact } from '@lecture/pipeline';
 
+interface ParsedUrlResponse {
+  text: string;
+  sourceUrl: string;
+  language: string;
+}
+
+class UrlParsingError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'UrlParsingError';
+  }
+}
+
+async function parseUrlSource(
+  serviceUrl: string,
+  sourceUrl: string,
+  language: string,
+  timeoutMs: number
+): Promise<ParsedUrlResponse> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`${serviceUrl.replace(/\/+$/, '')}/api/v1/parse`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url: sourceUrl, language }),
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new UrlParsingError(
+        `url-parser-service returned ${response.status}: ${body || response.statusText}`
+      );
+    }
+
+    const payload = (await response.json()) as Partial<ParsedUrlResponse>;
+    const text = String(payload.text ?? '').trim();
+    if (!text) {
+      throw new UrlParsingError('url-parser-service returned empty text');
+    }
+    return {
+      text,
+      sourceUrl: String(payload.sourceUrl ?? sourceUrl),
+      language: String(payload.language ?? language)
+    };
+  } catch (error) {
+    if (error instanceof UrlParsingError) {
+      throw error;
+    }
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new UrlParsingError(`url-parser-service request timeout after ${timeoutMs}ms`);
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    throw new UrlParsingError(message);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 class IngestionProcessor implements OnModuleInit, OnModuleDestroy {
   private worker?: Worker;
   private transcriptionQueue?: Queue;
@@ -51,8 +111,17 @@ class IngestionProcessor implements OnModuleInit, OnModuleDestroy {
             if (!payload.sourceUrl) {
               throw new Error('Missing sourceUrl for url sourceType');
             }
-            relativeStoragePath = path.join('raw', `${payload.lectureId}.source-url.txt`);
-            await writeArtifact(this.env.ARTIFACTS_DIR, relativeStoragePath, payload.sourceUrl);
+            if (!this.env.URL_PARSER_SERVICE_URL) {
+              throw new Error('URL_PARSER_SERVICE_URL is required for url sourceType');
+            }
+            const parsed = await parseUrlSource(
+              this.env.URL_PARSER_SERVICE_URL,
+              payload.sourceUrl,
+              payload.requestedLanguage ?? 'ru',
+              this.env.URL_PARSER_TIMEOUT_MS
+            );
+            relativeStoragePath = path.join('raw', `${payload.lectureId}_url.txt`);
+            await writeArtifact(this.env.ARTIFACTS_DIR, relativeStoragePath, parsed.text);
           }
 
           await this.repo.setSourceStoragePath(payload.jobId, relativeStoragePath);
@@ -64,7 +133,7 @@ class IngestionProcessor implements OnModuleInit, OnModuleDestroy {
             sourceType: payload.sourceType,
             sourceUrl: payload.sourceUrl,
             storagePath: relativeStoragePath,
-            mimeType: payload.mimeType,
+            mimeType: payload.sourceType === 'url' ? 'text/plain' : payload.mimeType,
             language: payload.requestedLanguage ?? 'ru'
           });
         } catch (error) {

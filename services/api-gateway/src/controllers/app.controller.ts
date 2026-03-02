@@ -28,6 +28,7 @@ import { Response } from 'express';
 import { QueueService } from '../services/queue.service';
 import { JobStoreService } from '../services/job-store.service';
 import { CreateIngestionRequestSchema } from '../dto/create-ingestion-request.schema';
+import { CreateUrlIngestionRequestSchema } from '../dto/create-url-ingestion-request.schema';
 import { ZodValidationPipe } from '../pipes/zod-validation.pipe';
 import { GenerateFlashcardsRequestSchema } from '../dto/generate-flashcards-request.schema';
 import { GenerateFlashcardsByJobRequestSchema } from '../dto/generate-flashcards-by-job-request.schema';
@@ -95,8 +96,32 @@ export class AppController {
     @UploadedFile() file?: { buffer: Buffer },
     @Req() request?: { user?: AuthUser }
   ) {
-    const currentUser = this.getCurrentUser(request);
     const fileBase64 = file?.buffer?.toString('base64') ?? parsed.fileBase64;
+    return this.createIngestionJobInternal(parsed, fileBase64, request);
+  }
+
+  @Post('/api/v1/lectures/ingest-url')
+  @UsePipes(new ZodValidationPipe(CreateUrlIngestionRequestSchema))
+  async createUrlIngestionJob(
+    @Body() parsed: any,
+    @Req() request?: { user?: AuthUser }
+  ) {
+    const payload = {
+      sourceType: 'url',
+      sourceUrl: parsed.sourceUrl,
+      filename: this.filenameFromUrl(parsed.sourceUrl),
+      mimeType: 'text/plain',
+      requestedLanguage: parsed.requestedLanguage ?? 'ru'
+    };
+    return this.createIngestionJobInternal(payload, undefined, request);
+  }
+
+  private async createIngestionJobInternal(
+    parsed: any,
+    fileBase64: string | undefined,
+    request?: { user?: AuthUser }
+  ) {
+    const currentUser = this.getCurrentUser(request);
     if (parsed.sourceType === 'upload' && !fileBase64) {
       throw new BadRequestException('file is required for upload sourceType');
     }
@@ -104,7 +129,8 @@ export class AppController {
       throw new BadRequestException('sourceUrl is required for url sourceType');
     }
     if (parsed.sourceType === 'upload') {
-      this.assertSupportedUpload(parsed.filename, parsed.mimeType, fileBase64);
+      const requiredFileBase64 = fileBase64 ?? '';
+      this.assertSupportedUpload(parsed.filename, parsed.mimeType, requiredFileBase64);
     }
 
     const activeJob = await this.store.repo.getActiveJobForUser(currentUser.sub);
@@ -161,6 +187,12 @@ export class AppController {
       status: 'QUEUED',
       queue: QUEUE_NAMES.ingestion
     };
+  }
+
+  private filenameFromUrl(sourceUrl: string): string {
+    const parsed = new URL(sourceUrl);
+    const host = parsed.hostname.replace(/[^a-zA-Z0-9.-]/g, '_') || 'website';
+    return `${host}.txt`;
   }
 
   private assertSupportedUpload(filename: string, mimeType: string | undefined, fileBase64: string): void {

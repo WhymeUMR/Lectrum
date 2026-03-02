@@ -140,6 +140,14 @@ export function enhanceOpenApiDocument(document: OpenAPIObject): OpenAPIObject {
       },
       required: ['sourceType', 'filename']
     },
+    UrlIngestionRequest: {
+      type: 'object',
+      properties: {
+        sourceUrl: { type: 'string', format: 'uri', example: 'https://example.com/article' },
+        requestedLanguage: { type: 'string', example: 'ru', default: 'ru' }
+      },
+      required: ['sourceUrl']
+    },
     IngestionAccepted: {
       type: 'object',
       properties: {
@@ -364,6 +372,47 @@ export function enhanceOpenApiDocument(document: OpenAPIObject): OpenAPIObject {
       },
       '413': {
         description: 'Файл слишком большой',
+        content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+      },
+      '503': {
+        description: 'Очередь временно недоступна',
+        content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+      }
+    }
+  });
+
+  apply('/api/v1/lectures/ingest-url', 'post', {
+    tags: ['Ingestion'],
+    summary: 'Создать задачу обработки по URL',
+    description: 'Упрощённый endpoint для URL-источников. `filename` и `sourceType` формируются на сервере.',
+    security: [{ bearerAuth: [] }],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/UrlIngestionRequest' }
+        }
+      }
+    },
+    responses: {
+      '201': {
+        description: 'Задача создана и поставлена в очередь',
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/IngestionAccepted' }
+          }
+        }
+      },
+      '400': {
+        description: 'Ошибка валидации URL',
+        content: { 'application/json': { schema: { $ref: '#/components/schemas/ValidationErrorResponse' } } }
+      },
+      '401': {
+        description: 'Нет токена авторизации',
+        content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+      },
+      '409': {
+        description: 'У пользователя уже есть активная задача обработки',
         content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
       },
       '503': {

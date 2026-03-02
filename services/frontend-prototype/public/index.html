@@ -128,7 +128,7 @@
 
   <main>
     <h1>Lecture-to-Flashcards Prototype</h1>
-    <p>Загрузите файл и получайте результат по категориям.</p>
+    <p>Загрузите файл или укажите ссылку на страницу и получайте результат по категориям.</p>
 
     <section id="auth">
       <h2>Авторизация</h2>
@@ -154,6 +154,11 @@
         <label for="audio-file">Файл (аудио/видео/PDF/TXT/PPTX):</label>
         <input id="audio-file" name="audio-file" type="file" accept="audio/*,video/*,.pdf,.txt,.pptx" required />
         <button id="ingest-btn" type="submit">Отправить в обработку</button>
+      </form>
+      <form id="url-form">
+        <label for="source-url">Ссылка на ресурс:</label>
+        <input id="source-url" name="source-url" type="url" placeholder="https://example.com/article" required />
+        <button id="ingest-url-btn" type="submit">Обработать ссылку</button>
       </form>
 
       <h3>Статус</h3>
@@ -264,6 +269,9 @@
     const form = document.getElementById('upload-form');
     const ingestBtn = document.getElementById('ingest-btn');
     const fileInput = document.getElementById('audio-file');
+    const urlForm = document.getElementById('url-form');
+    const ingestUrlBtn = document.getElementById('ingest-url-btn');
+    const sourceUrlInput = document.getElementById('source-url');
     const statusOutput = document.getElementById('status-output');
     const errorOutput = document.getElementById('error-output');
     const resultOutput = document.getElementById('result-output');
@@ -588,6 +596,8 @@
         authLogoutBtn.disabled = false;
         ingestBtn.disabled = false;
         fileInput.disabled = false;
+        ingestUrlBtn.disabled = false;
+        sourceUrlInput.disabled = false;
         ttsVoiceRefreshBtn.disabled = false;
       } else {
         authStatusOutput.textContent = 'Не авторизован';
@@ -596,6 +606,8 @@
         authLogoutBtn.disabled = true;
         ingestBtn.disabled = true;
         fileInput.disabled = true;
+        ingestUrlBtn.disabled = true;
+        sourceUrlInput.disabled = true;
         ttsVoiceRefreshBtn.disabled = true;
         setFeatureButtonsEnabled(false);
         ttsVoiceSelect.innerHTML = '<option value="">Войдите, чтобы загрузить голоса</option>';
@@ -1605,6 +1617,78 @@
         if (!ingestRes.ok) {
           setStatus(`Ошибка ingest: HTTP ${ingestRes.status}`);
           setError(ingestData.message || 'Ошибка при загрузке');
+          return;
+        }
+
+        const jobId = ingestData.jobId;
+        currentJobId = jobId;
+        persistCurrentUserProgress();
+        setStatus(`Job создан: ${jobId}`);
+        const finalData = await pollUntilCompleted(jobId);
+        if (!finalData) return;
+
+        currentJobId = jobId;
+        persistCurrentUserProgress();
+        setFeatureButtonsEnabled(true);
+        if (finalData && finalData.quiz) {
+          setQuiz(finalData.quiz);
+        }
+
+        await loadTranscript(jobId);
+      } catch (error) {
+        setStatus('Ошибка');
+        setError(error instanceof Error ? error.message : String(error));
+      }
+    });
+
+    urlForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!isAuthenticated()) {
+        setError('Сначала выполните авторизацию');
+        return;
+      }
+      setError('');
+      setResult(null);
+      setTranscript(null);
+      setHighlights(null);
+      setSummary(null);
+      setAssistant(null);
+      setFlashcards(null);
+      setQuiz(null);
+      recapTextOutput.textContent = 'Пока нет.';
+      if (recapAudioBlobUrl) {
+        URL.revokeObjectURL(recapAudioBlobUrl);
+        recapAudioBlobUrl = null;
+      }
+      recapAudioPlayer.removeAttribute('src');
+      recapAudioPlayer.load();
+      karaokeOutput.textContent = 'Пока нет.';
+
+      setFeatureButtonsEnabled(false);
+      currentJobId = null;
+      persistCurrentUserProgress();
+
+      const sourceUrl = String(sourceUrlInput.value || '').trim();
+      if (!sourceUrl) {
+        setError('Введите ссылку на страницу');
+        return;
+      }
+
+      try {
+        setStatus('Отправка ссылки в backend...');
+        const ingestRes = await fetch('/api/v1/lectures/ingest-url', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            sourceUrl,
+            requestedLanguage: 'ru'
+          })
+        });
+
+        const ingestData = await ingestRes.json();
+        if (!ingestRes.ok) {
+          setStatus(`Ошибка ingest: HTTP ${ingestRes.status}`);
+          setError(ingestData.message || 'Ошибка при обработке ссылки');
           return;
         }
 

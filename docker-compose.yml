@@ -37,6 +37,11 @@ x-common-env: &common-env
   OPENAI_FALLBACK_API_KEY: ${OPENAI_FALLBACK_API_KEY:-}
   OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
   OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+  URL_PARSER_SERVICE_URL: ${URL_PARSER_SERVICE_URL:-http://url-parser-service:8000}
+  URL_PARSER_TIMEOUT_MS: ${URL_PARSER_TIMEOUT_MS:-180000}
+  CRAWL4AI_API_KEY: ${CRAWL4AI_API_KEY:-}
+  CRAWL4AI_LLM_PROVIDER: ${CRAWL4AI_LLM_PROVIDER:-openai/gpt-4.1-mini}
+  CRAWL4AI_MAX_TEXT_CHARS: ${CRAWL4AI_MAX_TEXT_CHARS:-400000}
   SUMMARY_AI_TIMEOUT_MS: ${SUMMARY_AI_TIMEOUT_MS:-180000}
   DATABASE_URL: ${DATABASE_URL:-postgres://app:app@postgres:5432/lecture_flashcards}
   ARTIFACTS_DIR: ${ARTIFACTS_DIR:-/app/storage}
@@ -119,8 +124,34 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      url-parser-service:
+        condition: service_healthy
     healthcheck:
       test: ['CMD-SHELL', "wget -qO- http://127.0.0.1:3000/health | grep -q 'ok'"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  url-parser-service:
+    build:
+      context: .
+      dockerfile: services/url-parser-service/Dockerfile
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      CRAWL4AI_API_KEY: ${CRAWL4AI_API_KEY:-}
+      CRAWL4AI_LLM_PROVIDER: ${CRAWL4AI_LLM_PROVIDER:-openai/gpt-4.1-mini}
+      CRAWL4AI_MAX_TEXT_CHARS: ${CRAWL4AI_MAX_TEXT_CHARS:-400000}
+    ports:
+      - '3107:8000'
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          "python -c \"import urllib.request; import sys; data=urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).read().decode('utf-8'); sys.exit(0 if 'ok' in data else 1)\""
+        ]
       interval: 10s
       timeout: 3s
       retries: 10

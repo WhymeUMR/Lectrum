@@ -23,6 +23,51 @@ const bullmq_1 = require("bullmq");
 const contracts_1 = require("@lecture/contracts");
 const config_1 = require("@lecture/config");
 const pipeline_1 = require("@lecture/pipeline");
+class UrlParsingError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = 'UrlParsingError';
+    }
+}
+async function parseUrlSource(serviceUrl, sourceUrl, language, timeoutMs) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const response = await fetch(`${serviceUrl.replace(/\/+$/, '')}/api/v1/parse`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ url: sourceUrl, language }),
+            signal: controller.signal
+        });
+        if (!response.ok) {
+            const body = await response.text();
+            throw new UrlParsingError(`url-parser-service returned ${response.status}: ${body || response.statusText}`);
+        }
+        const payload = (await response.json());
+        const text = String(payload.text ?? '').trim();
+        if (!text) {
+            throw new UrlParsingError('url-parser-service returned empty text');
+        }
+        return {
+            text,
+            sourceUrl: String(payload.sourceUrl ?? sourceUrl),
+            language: String(payload.language ?? language)
+        };
+    }
+    catch (error) {
+        if (error instanceof UrlParsingError) {
+            throw error;
+        }
+        if (error instanceof DOMException && error.name === 'AbortError') {
+            throw new UrlParsingError(`url-parser-service request timeout after ${timeoutMs}ms`);
+        }
+        const message = error instanceof Error ? error.message : String(error);
+        throw new UrlParsingError(message);
+    }
+    finally {
+        clearTimeout(timer);
+    }
+}
 let IngestionProcessor = class IngestionProcessor {
     constructor(env) {
         this.env = env;
@@ -55,8 +100,12 @@ let IngestionProcessor = class IngestionProcessor {
                     if (!payload.sourceUrl) {
                         throw new Error('Missing sourceUrl for url sourceType');
                     }
-                    relativeStoragePath = node_path_1.default.join('raw', `${payload.lectureId}.source-url.txt`);
-                    await (0, pipeline_1.writeArtifact)(this.env.ARTIFACTS_DIR, relativeStoragePath, payload.sourceUrl);
+                    if (!this.env.URL_PARSER_SERVICE_URL) {
+                        throw new Error('URL_PARSER_SERVICE_URL is required for url sourceType');
+                    }
+                    const parsed = await parseUrlSource(this.env.URL_PARSER_SERVICE_URL, payload.sourceUrl, payload.requestedLanguage ?? 'ru', this.env.URL_PARSER_TIMEOUT_MS);
+                    relativeStoragePath = node_path_1.default.join('raw', `${payload.lectureId}_url.txt`);
+                    await (0, pipeline_1.writeArtifact)(this.env.ARTIFACTS_DIR, relativeStoragePath, parsed.text);
                 }
                 await this.repo.setSourceStoragePath(payload.jobId, relativeStoragePath);
                 await this.repo.updateStatus(payload.jobId, 'INGESTED');
@@ -66,7 +115,7 @@ let IngestionProcessor = class IngestionProcessor {
                     sourceType: payload.sourceType,
                     sourceUrl: payload.sourceUrl,
                     storagePath: relativeStoragePath,
-                    mimeType: payload.mimeType,
+                    mimeType: payload.sourceType === 'url' ? 'text/plain' : payload.mimeType,
                     language: payload.requestedLanguage ?? 'ru'
                 });
             }
