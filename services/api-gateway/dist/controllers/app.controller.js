@@ -38,6 +38,7 @@ const assistant_tts_preview_request_schema_1 = require("../dto/assistant-tts-pre
 const material_assistant_service_1 = require("../services/material-assistant.service");
 const assistant_tts_service_1 = require("../services/assistant-tts.service");
 const material_quiz_service_1 = require("../services/material-quiz.service");
+const public_decorator_1 = require("../auth/public.decorator");
 let AppController = AppController_1 = class AppController {
     constructor(env, queueService, store, materialAssistant, assistantTts, materialQuiz) {
         this.env = env;
@@ -59,7 +60,8 @@ let AppController = AppController_1 = class AppController {
     ready() {
         return { status: 'ready', queues: contracts_1.QUEUE_NAMES };
     }
-    async createIngestionJob(parsed, file) {
+    async createIngestionJob(parsed, file, request) {
+        const currentUser = this.getCurrentUser(request);
         const fileBase64 = file?.buffer?.toString('base64') ?? parsed.fileBase64;
         if (parsed.sourceType === 'upload' && !fileBase64) {
             throw new common_1.BadRequestException('file is required for upload sourceType');
@@ -70,7 +72,7 @@ let AppController = AppController_1 = class AppController {
         if (parsed.sourceType === 'upload') {
             this.assertSupportedUpload(parsed.filename, parsed.mimeType, fileBase64);
         }
-        const activeJob = await this.store.repo.getActiveJob();
+        const activeJob = await this.store.repo.getActiveJobForUser(currentUser.sub);
         if (activeJob) {
             throw new common_1.ConflictException(`Another lecture is still processing (jobId=${activeJob.jobId}, status=${activeJob.status}). Wait until it is COMPLETED or FAILED.`);
         }
@@ -80,6 +82,7 @@ let AppController = AppController_1 = class AppController {
             await this.store.repo.createJob({
                 jobId,
                 lectureId,
+                ownerUserId: currentUser.sub,
                 sourceType: parsed.sourceType,
                 filename: parsed.filename,
                 mimeType: parsed.mimeType,
@@ -234,18 +237,25 @@ let AppController = AppController_1 = class AppController {
         const storageExt = node_path_1.default.extname(String(job.storagePath ?? '')).toLowerCase();
         return allowedMediaExt.has(filenameExt) || allowedMediaExt.has(storageExt);
     }
-    async getJob(jobId) {
-        const job = await this.store.repo.getJob(jobId);
-        if (!job) {
-            throw new common_1.NotFoundException(`Job ${jobId} not found`);
-        }
+    async getJob(jobId, request) {
+        const currentUser = this.getCurrentUser(request);
+        const job = await this.getOwnedJobOrThrow(jobId, currentUser);
         return job;
     }
-    async getJobResult(jobId, response) {
-        const job = await this.store.repo.getJob(jobId);
-        if (!job) {
-            throw new common_1.NotFoundException(`Job ${jobId} not found`);
-        }
+    async listUserJobs(limitRaw, request) {
+        const currentUser = this.getCurrentUser(request);
+        const parsedLimit = Number(limitRaw ?? 20);
+        const limit = Number.isFinite(parsedLimit) ? Math.max(1, Math.min(100, Math.floor(parsedLimit))) : 20;
+        const items = await this.store.repo.listJobsForUser(currentUser.sub, limit);
+        return {
+            items,
+            count: items.length,
+            limit
+        };
+    }
+    async getJobResult(jobId, response, request) {
+        const currentUser = this.getCurrentUser(request);
+        const job = await this.getOwnedJobOrThrow(jobId, currentUser);
         if (job.status === 'FAILED') {
             response.status(common_1.HttpStatus.UNPROCESSABLE_ENTITY);
             return {
@@ -283,11 +293,9 @@ let AppController = AppController_1 = class AppController {
             quiz: this.safePublicQuiz(job.quizJson)
         };
     }
-    async getFullTranscript(jobId, response) {
-        const job = await this.store.repo.getJob(jobId);
-        if (!job) {
-            throw new common_1.NotFoundException(`Job ${jobId} not found`);
-        }
+    async getFullTranscript(jobId, response, request) {
+        const currentUser = this.getCurrentUser(request);
+        const job = await this.getOwnedJobOrThrow(jobId, currentUser);
         if (job.status === 'FAILED') {
             response.status(common_1.HttpStatus.UNPROCESSABLE_ENTITY);
             return {
@@ -312,16 +320,15 @@ let AppController = AppController_1 = class AppController {
             transcript: JSON.parse(job.transcriptJson)
         };
     }
-    async generateTranscriptHighlights(jobId, response) {
-        const result = await this.requestHighlightsGeneration(jobId);
+    async generateTranscriptHighlights(jobId, response, request) {
+        const currentUser = this.getCurrentUser(request);
+        const result = await this.requestHighlightsGeneration(jobId, currentUser);
         response.status(common_1.HttpStatus.ACCEPTED);
         return result;
     }
-    async getTranscriptHighlights(jobId, response) {
-        const job = await this.store.repo.getJob(jobId);
-        if (!job) {
-            throw new common_1.NotFoundException(`Job ${jobId} not found`);
-        }
+    async getTranscriptHighlights(jobId, response, request) {
+        const currentUser = this.getCurrentUser(request);
+        const job = await this.getOwnedJobOrThrow(jobId, currentUser);
         if (job.status === 'FAILED') {
             response.status(common_1.HttpStatus.UNPROCESSABLE_ENTITY);
             return {
@@ -346,16 +353,15 @@ let AppController = AppController_1 = class AppController {
             highlights: JSON.parse(job.highlightsJson)
         };
     }
-    async generateLectureSummary(jobId, response) {
-        const result = await this.requestSummaryGeneration(jobId);
+    async generateLectureSummary(jobId, response, request) {
+        const currentUser = this.getCurrentUser(request);
+        const result = await this.requestSummaryGeneration(jobId, currentUser);
         response.status(common_1.HttpStatus.ACCEPTED);
         return result;
     }
-    async getLectureSummary(jobId, response) {
-        const job = await this.store.repo.getJob(jobId);
-        if (!job) {
-            throw new common_1.NotFoundException(`Job ${jobId} not found`);
-        }
+    async getLectureSummary(jobId, response, request) {
+        const currentUser = this.getCurrentUser(request);
+        const job = await this.getOwnedJobOrThrow(jobId, currentUser);
         if (job.status === 'FAILED') {
             response.status(common_1.HttpStatus.UNPROCESSABLE_ENTITY);
             return {
@@ -380,11 +386,9 @@ let AppController = AppController_1 = class AppController {
             summary: JSON.parse(job.summaryJson)
         };
     }
-    async askMaterialAssistant(body) {
-        const job = await this.store.repo.getJob(body.jobId);
-        if (!job) {
-            throw new common_1.NotFoundException(`Job ${body.jobId} not found`);
-        }
+    async askMaterialAssistant(body, request) {
+        const currentUser = this.getCurrentUser(request);
+        const job = await this.getOwnedJobOrThrow(body.jobId, currentUser);
         if (!job.transcriptText) {
             throw new common_1.ConflictException('Transcript is not ready yet');
         }
@@ -428,11 +432,9 @@ let AppController = AppController_1 = class AppController {
             refused: result.refused
         };
     }
-    async generateAssistantRecapAudio(body) {
-        const job = await this.store.repo.getJob(body.jobId);
-        if (!job) {
-            throw new common_1.NotFoundException(`Job ${body.jobId} not found`);
-        }
+    async generateAssistantRecapAudio(body, request) {
+        const currentUser = this.getCurrentUser(request);
+        const job = await this.getOwnedJobOrThrow(body.jobId, currentUser);
         if (!job.transcriptText) {
             throw new common_1.ConflictException('Transcript is not ready yet');
         }
@@ -468,11 +470,9 @@ let AppController = AppController_1 = class AppController {
             chunks: ttsResult.chunks
         };
     }
-    async generateAssistantRecapText(body) {
-        const job = await this.store.repo.getJob(body.jobId);
-        if (!job) {
-            throw new common_1.NotFoundException(`Job ${body.jobId} not found`);
-        }
+    async generateAssistantRecapText(body, request) {
+        const currentUser = this.getCurrentUser(request);
+        const job = await this.getOwnedJobOrThrow(body.jobId, currentUser);
         if (!job.transcriptText) {
             throw new common_1.ConflictException('Transcript is not ready yet');
         }
@@ -485,11 +485,9 @@ let AppController = AppController_1 = class AppController {
             recapText
         };
     }
-    async streamAssistantRecapAudio(body, response) {
-        const job = await this.store.repo.getJob(body.jobId);
-        if (!job) {
-            throw new common_1.NotFoundException(`Job ${body.jobId} not found`);
-        }
+    async streamAssistantRecapAudio(body, response, request) {
+        const currentUser = this.getCurrentUser(request);
+        const job = await this.getOwnedJobOrThrow(body.jobId, currentUser);
         if (!job.transcriptText) {
             throw new common_1.ConflictException('Transcript is not ready yet');
         }
@@ -567,11 +565,9 @@ let AppController = AppController_1 = class AppController {
         response.status(common_1.HttpStatus.OK);
         response.send(ttsResult.audioBuffer);
     }
-    async generateAssistantRecapAudioKaraoke(body) {
-        const job = await this.store.repo.getJob(body.jobId);
-        if (!job) {
-            throw new common_1.NotFoundException(`Job ${body.jobId} not found`);
-        }
+    async generateAssistantRecapAudioKaraoke(body, request) {
+        const currentUser = this.getCurrentUser(request);
+        const job = await this.getOwnedJobOrThrow(body.jobId, currentUser);
         if (!job.transcriptText) {
             throw new common_1.ConflictException('Transcript is not ready yet');
         }
@@ -606,21 +602,21 @@ let AppController = AppController_1 = class AppController {
             words: ttsResult.words
         };
     }
-    async generateFlashcards(jobId, body, response) {
-        const result = await this.requestFlashcardsGeneration(jobId, body.count);
+    async generateFlashcards(jobId, body, response, request) {
+        const currentUser = this.getCurrentUser(request);
+        const result = await this.requestFlashcardsGeneration(jobId, body.count, currentUser);
         response.status(common_1.HttpStatus.ACCEPTED);
         return result;
     }
-    async generateFlashcardsByJobId(body, response) {
-        const result = await this.requestFlashcardsGeneration(body.jobId, body.count);
+    async generateFlashcardsByJobId(body, response, request) {
+        const currentUser = this.getCurrentUser(request);
+        const result = await this.requestFlashcardsGeneration(body.jobId, body.count, currentUser);
         response.status(common_1.HttpStatus.ACCEPTED);
         return result;
     }
-    async generateMaterialQuiz(body) {
-        const job = await this.store.repo.getJob(body.jobId);
-        if (!job) {
-            throw new common_1.NotFoundException(`Job ${body.jobId} not found`);
-        }
+    async generateMaterialQuiz(body, request) {
+        const currentUser = this.getCurrentUser(request);
+        const job = await this.getOwnedJobOrThrow(body.jobId, currentUser);
         if (!job.transcriptText) {
             throw new common_1.ConflictException('Transcript is not ready yet');
         }
@@ -651,11 +647,9 @@ let AppController = AppController_1 = class AppController {
             });
         }
     }
-    async checkMaterialQuiz(body) {
-        const job = await this.store.repo.getJob(body.jobId);
-        if (!job) {
-            throw new common_1.NotFoundException(`Job ${body.jobId} not found`);
-        }
+    async checkMaterialQuiz(body, request) {
+        const currentUser = this.getCurrentUser(request);
+        const job = await this.getOwnedJobOrThrow(body.jobId, currentUser);
         if (!job.quizJson) {
             throw new common_1.ConflictException('Quiz is not generated yet');
         }
@@ -678,11 +672,9 @@ let AppController = AppController_1 = class AppController {
             results: evaluation.results
         };
     }
-    async getMaterialQuizStats(body) {
-        const job = await this.store.repo.getJob(body.jobId);
-        if (!job) {
-            throw new common_1.NotFoundException(`Job ${body.jobId} not found`);
-        }
+    async getMaterialQuizStats(body, request) {
+        const currentUser = this.getCurrentUser(request);
+        const job = await this.getOwnedJobOrThrow(body.jobId, currentUser);
         if (!job.quizJson) {
             throw new common_1.ConflictException('Quiz is not generated yet');
         }
@@ -705,11 +697,8 @@ let AppController = AppController_1 = class AppController {
             results: evaluation.results
         };
     }
-    async requestFlashcardsGeneration(jobId, count) {
-        const job = await this.store.repo.getJob(jobId);
-        if (!job) {
-            throw new common_1.NotFoundException(`Job ${jobId} not found`);
-        }
+    async requestFlashcardsGeneration(jobId, count, currentUser) {
+        const job = await this.getOwnedJobOrThrow(jobId, currentUser);
         if (job.status === 'FAILED') {
             throw new common_1.ConflictException('Cannot generate flashcards for failed job');
         }
@@ -762,11 +751,8 @@ let AppController = AppController_1 = class AppController {
             });
         }
     }
-    async requestHighlightsGeneration(jobId) {
-        const job = await this.store.repo.getJob(jobId);
-        if (!job) {
-            throw new common_1.NotFoundException(`Job ${jobId} not found`);
-        }
+    async requestHighlightsGeneration(jobId, currentUser) {
+        const job = await this.getOwnedJobOrThrow(jobId, currentUser);
         if (job.status === 'FAILED') {
             throw new common_1.ConflictException('Cannot generate highlights for failed job');
         }
@@ -797,11 +783,8 @@ let AppController = AppController_1 = class AppController {
             status: 'GENERATING_HIGHLIGHTS'
         };
     }
-    async requestSummaryGeneration(jobId) {
-        const job = await this.store.repo.getJob(jobId);
-        if (!job) {
-            throw new common_1.NotFoundException(`Job ${jobId} not found`);
-        }
+    async requestSummaryGeneration(jobId, currentUser) {
+        const job = await this.getOwnedJobOrThrow(jobId, currentUser);
         if (!job.transcriptText) {
             if (job.status === 'FAILED') {
                 throw new common_1.ConflictException('Cannot generate summary: job failed before transcript was produced');
@@ -859,18 +842,51 @@ let AppController = AppController_1 = class AppController {
             return null;
         }
     }
+    getCurrentUser(request) {
+        if (request?.user) {
+            return request.user;
+        }
+        const isTestMode = process.env.NODE_ENV === 'test' || this.env.APP_ENV === 'test';
+        if (!isTestMode) {
+            throw new common_1.UnauthorizedException('Authorization token is required');
+        }
+        // Test fallback for direct controller unit tests that bypass Nest guards.
+        return {
+            sub: 'test-user',
+            login: 'test',
+            role: 'admin'
+        };
+    }
+    async getOwnedJobOrThrow(jobId, currentUser) {
+        const job = await this.store.repo.getJob(jobId);
+        if (!job) {
+            throw new common_1.NotFoundException(`Job ${jobId} not found`);
+        }
+        if (!job.ownerUserId) {
+            if (currentUser.role !== 'admin') {
+                throw new common_1.NotFoundException(`Job ${jobId} not found`);
+            }
+            return job;
+        }
+        if (job.ownerUserId !== currentUser.sub) {
+            throw new common_1.NotFoundException(`Job ${jobId} not found`);
+        }
+        return job;
+    }
 };
 exports.AppController = AppController;
 AppController.MAX_FILENAME_LENGTH = 180;
 AppController.FILE_SIGNATURE_MIN_BYTES = 4;
 __decorate([
     (0, common_1.Get)('/health'),
+    (0, public_decorator_1.Public)(),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", []),
     __metadata("design:returntype", void 0)
 ], AppController.prototype, "health", null);
 __decorate([
     (0, common_1.Get)('/ready'),
+    (0, public_decorator_1.Public)(),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", []),
     __metadata("design:returntype", void 0)
@@ -885,92 +901,112 @@ __decorate([
     (0, common_1.UsePipes)(new zod_validation_pipe_1.ZodValidationPipe(create_ingestion_request_schema_1.CreateIngestionRequestSchema)),
     __param(0, (0, common_1.Body)()),
     __param(1, (0, common_1.UploadedFile)()),
+    __param(2, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:paramtypes", [Object, Object, Object]),
     __metadata("design:returntype", Promise)
 ], AppController.prototype, "createIngestionJob", null);
 __decorate([
     (0, common_1.Get)('/api/v1/jobs/:jobId'),
     __param(0, (0, common_1.Param)('jobId')),
+    __param(1, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String]),
+    __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", Promise)
 ], AppController.prototype, "getJob", null);
+__decorate([
+    (0, common_1.Get)('/api/v1/jobs'),
+    __param(0, (0, common_1.Query)('limit')),
+    __param(1, (0, common_1.Req)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", Promise)
+], AppController.prototype, "listUserJobs", null);
 __decorate([
     (0, common_1.Get)('/api/v1/jobs/:jobId/result'),
     __param(0, (0, common_1.Param)('jobId')),
     __param(1, (0, common_1.Res)({ passthrough: true })),
+    __param(2, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:paramtypes", [String, Object, Object]),
     __metadata("design:returntype", Promise)
 ], AppController.prototype, "getJobResult", null);
 __decorate([
     (0, common_1.Get)('/api/v1/jobs/:jobId/transcript'),
     __param(0, (0, common_1.Param)('jobId')),
     __param(1, (0, common_1.Res)({ passthrough: true })),
+    __param(2, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:paramtypes", [String, Object, Object]),
     __metadata("design:returntype", Promise)
 ], AppController.prototype, "getFullTranscript", null);
 __decorate([
     (0, common_1.Post)('/api/v1/jobs/:jobId/highlights'),
     __param(0, (0, common_1.Param)('jobId')),
     __param(1, (0, common_1.Res)({ passthrough: true })),
+    __param(2, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:paramtypes", [String, Object, Object]),
     __metadata("design:returntype", Promise)
 ], AppController.prototype, "generateTranscriptHighlights", null);
 __decorate([
     (0, common_1.Get)('/api/v1/jobs/:jobId/highlights'),
     __param(0, (0, common_1.Param)('jobId')),
     __param(1, (0, common_1.Res)({ passthrough: true })),
+    __param(2, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:paramtypes", [String, Object, Object]),
     __metadata("design:returntype", Promise)
 ], AppController.prototype, "getTranscriptHighlights", null);
 __decorate([
     (0, common_1.Post)('/api/v1/jobs/:jobId/summary'),
     __param(0, (0, common_1.Param)('jobId')),
     __param(1, (0, common_1.Res)({ passthrough: true })),
+    __param(2, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:paramtypes", [String, Object, Object]),
     __metadata("design:returntype", Promise)
 ], AppController.prototype, "generateLectureSummary", null);
 __decorate([
     (0, common_1.Get)('/api/v1/jobs/:jobId/summary'),
     __param(0, (0, common_1.Param)('jobId')),
     __param(1, (0, common_1.Res)({ passthrough: true })),
+    __param(2, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:paramtypes", [String, Object, Object]),
     __metadata("design:returntype", Promise)
 ], AppController.prototype, "getLectureSummary", null);
 __decorate([
     (0, common_1.Post)('/api/v1/assistant/ask'),
     __param(0, (0, common_1.Body)(new zod_validation_pipe_1.ZodValidationPipe(assistant_ask_request_schema_1.AssistantAskRequestSchema))),
+    __param(1, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
 ], AppController.prototype, "askMaterialAssistant", null);
 __decorate([
     (0, common_1.Post)('/api/v1/assistant/recap-audio'),
     __param(0, (0, common_1.Body)(new zod_validation_pipe_1.ZodValidationPipe(assistant_recap_request_schema_1.AssistantRecapRequestSchema))),
+    __param(1, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
 ], AppController.prototype, "generateAssistantRecapAudio", null);
 __decorate([
     (0, common_1.Post)('/api/v1/assistant/recap'),
     __param(0, (0, common_1.Body)(new zod_validation_pipe_1.ZodValidationPipe(assistant_recap_request_schema_1.AssistantRecapRequestSchema))),
+    __param(1, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
 ], AppController.prototype, "generateAssistantRecapText", null);
 __decorate([
     (0, common_1.Post)('/api/v1/assistant/recap-audio/stream'),
     __param(0, (0, common_1.Body)(new zod_validation_pipe_1.ZodValidationPipe(assistant_recap_request_schema_1.AssistantRecapRequestSchema))),
     __param(1, (0, common_1.Res)()),
+    __param(2, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:paramtypes", [Object, Object, Object]),
     __metadata("design:returntype", Promise)
 ], AppController.prototype, "streamAssistantRecapAudio", null);
 __decorate([
@@ -990,8 +1026,9 @@ __decorate([
 __decorate([
     (0, common_1.Post)('/api/v1/assistant/recap-audio/karaoke'),
     __param(0, (0, common_1.Body)(new zod_validation_pipe_1.ZodValidationPipe(assistant_recap_request_schema_1.AssistantRecapRequestSchema))),
+    __param(1, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
 ], AppController.prototype, "generateAssistantRecapAudioKaraoke", null);
 __decorate([
@@ -999,37 +1036,42 @@ __decorate([
     __param(0, (0, common_1.Param)('jobId')),
     __param(1, (0, common_1.Body)(new zod_validation_pipe_1.ZodValidationPipe(generate_flashcards_request_schema_1.GenerateFlashcardsRequestSchema))),
     __param(2, (0, common_1.Res)({ passthrough: true })),
+    __param(3, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, Object, Object]),
+    __metadata("design:paramtypes", [String, Object, Object, Object]),
     __metadata("design:returntype", Promise)
 ], AppController.prototype, "generateFlashcards", null);
 __decorate([
     (0, common_1.Post)('/api/v1/flashcards/generate'),
     __param(0, (0, common_1.Body)(new zod_validation_pipe_1.ZodValidationPipe(generate_flashcards_by_job_request_schema_1.GenerateFlashcardsByJobRequestSchema))),
     __param(1, (0, common_1.Res)({ passthrough: true })),
+    __param(2, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:paramtypes", [Object, Object, Object]),
     __metadata("design:returntype", Promise)
 ], AppController.prototype, "generateFlashcardsByJobId", null);
 __decorate([
     (0, common_1.Post)('/api/v1/tests/generate'),
     __param(0, (0, common_1.Body)(new zod_validation_pipe_1.ZodValidationPipe(generate_quiz_request_schema_1.GenerateQuizRequestSchema))),
+    __param(1, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
 ], AppController.prototype, "generateMaterialQuiz", null);
 __decorate([
     (0, common_1.Post)('/api/v1/tests/check'),
     __param(0, (0, common_1.Body)(new zod_validation_pipe_1.ZodValidationPipe(check_quiz_answers_request_schema_1.CheckQuizAnswersRequestSchema))),
+    __param(1, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
 ], AppController.prototype, "checkMaterialQuiz", null);
 __decorate([
     (0, common_1.Post)('/api/v1/tests/stats'),
     __param(0, (0, common_1.Body)(new zod_validation_pipe_1.ZodValidationPipe(check_quiz_answers_request_schema_1.CheckQuizAnswersRequestSchema))),
+    __param(1, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
 ], AppController.prototype, "getMaterialQuizStats", null);
 exports.AppController = AppController = AppController_1 = __decorate([

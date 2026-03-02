@@ -4,6 +4,8 @@ const path = require('node:path');
 
 const port = Number(process.env.PORT || 3000);
 const apiBaseUrl = process.env.API_BASE_URL || 'http://api-gateway:3000';
+const authGoogleClientId = process.env.AUTH_GOOGLE_CLIENT_ID || '';
+const authTelegramBotUsername = process.env.AUTH_TELEGRAM_BOT_USERNAME || '';
 
 const publicDir = path.join(__dirname, '..', 'public');
 
@@ -24,12 +26,18 @@ async function proxyApiRequest(req, res, url) {
   const upstreamUrl = `${apiBaseUrl}${url.pathname}${url.search}`;
   const method = req.method || 'GET';
   const bodyBuffer = method === 'GET' || method === 'HEAD' ? undefined : await readRequestBody(req);
+  const contentType = req.headers['content-type'];
+  const authorization = req.headers.authorization;
+  const accept = req.headers.accept;
+
+  const upstreamHeaders = {};
+  if (contentType) upstreamHeaders['content-type'] = contentType;
+  if (authorization) upstreamHeaders.authorization = authorization;
+  if (accept) upstreamHeaders.accept = accept;
 
   const upstreamRes = await fetch(upstreamUrl, {
     method,
-    headers: {
-      'content-type': req.headers['content-type'] || 'application/json'
-    },
+    headers: upstreamHeaders,
     body: bodyBuffer
   });
 
@@ -57,7 +65,11 @@ async function handler(req, res) {
     }
 
     if (req.method === 'GET' && url.pathname === '/config') {
-      return sendJson(res, 200, { apiBaseUrl });
+      return sendJson(res, 200, {
+        apiBaseUrl,
+        authGoogleClientId,
+        authTelegramBotUsername
+      });
     }
 
     if (url.pathname.startsWith('/api/')) {

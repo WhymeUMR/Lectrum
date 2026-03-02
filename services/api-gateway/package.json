@@ -12,14 +12,16 @@
   "dependencies": {
     "@lecture/config": "file:../../packages/config",
     "@lecture/contracts": "file:../../packages/contracts",
+    "@lecture/pipeline": "file:../../packages/pipeline",
     "@nestjs/common": "^10.4.15",
     "@nestjs/core": "^10.4.15",
     "@nestjs/platform-express": "^10.4.15",
+    "@nestjs/swagger": "^7.4.2",
     "bullmq": "^5.34.10",
     "ioredis": "^5.4.2",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "@lecture/pipeline": "file:../../packages/pipeline"
+    "swagger-ui-express": "^5.0.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.6",

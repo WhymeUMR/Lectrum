@@ -55,7 +55,18 @@ const EnvSchema = zod_1.z.object({
     OPENAI_FALLBACK_API_KEY: zod_1.z.preprocess(emptyToUndefined, zod_1.z.string().min(1).optional()),
     OPENAI_MODEL: zod_1.z.preprocess(emptyToUndefined, zod_1.z.string().min(1).optional()),
     OPENAI_BASE_URL: zod_1.z.preprocess(emptyToUndefined, zod_1.z.string().url().optional()),
-    SUMMARY_AI_TIMEOUT_MS: zod_1.z.coerce.number().int().positive().default(180000)
+    SUMMARY_AI_TIMEOUT_MS: zod_1.z.coerce.number().int().positive().default(180000),
+    AUTH_JWT_ACCESS_SECRET: zod_1.z.string().min(32).default('dev-access-secret-change-me-at-least-32-chars'),
+    AUTH_JWT_REFRESH_SECRET: zod_1.z.string().min(32).default('dev-refresh-secret-change-me-at-least-32-chars'),
+    AUTH_JWT_ISSUER: zod_1.z.string().min(1).default('lecture-api'),
+    AUTH_JWT_AUDIENCE: zod_1.z.string().min(1).default('lecture-client'),
+    AUTH_ACCESS_TTL_SECONDS: zod_1.z.coerce.number().int().positive().default(900),
+    AUTH_REFRESH_TTL_SECONDS: zod_1.z.coerce.number().int().positive().default(2592000),
+    AUTH_USER_LOGIN: zod_1.z.string().min(1).default('admin'),
+    AUTH_USER_PASSWORD: zod_1.z.string().min(1).default('admin'),
+    AUTH_GOOGLE_CLIENT_ID: zod_1.z.preprocess(emptyToUndefined, zod_1.z.string().min(1).optional()),
+    AUTH_TELEGRAM_BOT_TOKEN: zod_1.z.preprocess(emptyToUndefined, zod_1.z.string().min(1).optional()),
+    AUTH_TELEGRAM_BOT_USERNAME: zod_1.z.preprocess(emptyToUndefined, zod_1.z.string().min(1).optional())
 });
 exports.APP_ENV = Symbol('APP_ENV');
 function loadEnv(serviceName) {
@@ -97,7 +108,18 @@ function loadEnv(serviceName) {
         OPENAI_FALLBACK_API_KEY: process.env.OPENAI_FALLBACK_API_KEY,
         OPENAI_MODEL: process.env.OPENAI_MODEL,
         OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
-        SUMMARY_AI_TIMEOUT_MS: process.env.SUMMARY_AI_TIMEOUT_MS
+        SUMMARY_AI_TIMEOUT_MS: process.env.SUMMARY_AI_TIMEOUT_MS,
+        AUTH_JWT_ACCESS_SECRET: process.env.AUTH_JWT_ACCESS_SECRET,
+        AUTH_JWT_REFRESH_SECRET: process.env.AUTH_JWT_REFRESH_SECRET,
+        AUTH_JWT_ISSUER: process.env.AUTH_JWT_ISSUER,
+        AUTH_JWT_AUDIENCE: process.env.AUTH_JWT_AUDIENCE,
+        AUTH_ACCESS_TTL_SECONDS: process.env.AUTH_ACCESS_TTL_SECONDS,
+        AUTH_REFRESH_TTL_SECONDS: process.env.AUTH_REFRESH_TTL_SECONDS,
+        AUTH_USER_LOGIN: process.env.AUTH_USER_LOGIN,
+        AUTH_USER_PASSWORD: process.env.AUTH_USER_PASSWORD,
+        AUTH_GOOGLE_CLIENT_ID: process.env.AUTH_GOOGLE_CLIENT_ID,
+        AUTH_TELEGRAM_BOT_TOKEN: process.env.AUTH_TELEGRAM_BOT_TOKEN,
+        AUTH_TELEGRAM_BOT_USERNAME: process.env.AUTH_TELEGRAM_BOT_USERNAME
     });
 }
 function buildRedisConnection(env) {

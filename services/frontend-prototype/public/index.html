@@ -43,6 +43,13 @@
       border-radius: 8px;
     }
 
+    .auth-social {
+      margin-top: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
     button {
       margin-top: 6px;
       margin-bottom: 8px;
@@ -108,6 +115,7 @@
 
 <body>
   <nav>
+    <a href="#auth">Авторизация</a>
     <a href="#processing">Обработка</a>
     <a href="#transcript">Транскрипция</a>
     <a href="#highlights">Таймкоды</a>
@@ -122,12 +130,30 @@
     <h1>Lecture-to-Flashcards Prototype</h1>
     <p>Загрузите файл и получайте результат по категориям.</p>
 
+    <section id="auth">
+      <h2>Авторизация</h2>
+      <form id="auth-form">
+        <label for="auth-login">Логин:</label>
+        <input id="auth-login" name="auth-login" type="text" value="admin" required />
+        <label for="auth-password">Пароль:</label>
+        <input id="auth-password" name="auth-password" type="password" value="admin" required />
+        <button id="auth-login-btn" type="submit">Войти</button>
+        <button id="auth-register-btn" type="button">Зарегистрироваться</button>
+        <button id="auth-logout-btn" type="button">Выйти</button>
+      </form>
+      <p id="auth-status-output">Не авторизован</p>
+      <div class="auth-social">
+        <div id="google-signin-wrap">Google вход недоступен (не задан AUTH_GOOGLE_CLIENT_ID).</div>
+        <div id="telegram-login-wrap">Telegram вход недоступен (не задан AUTH_TELEGRAM_BOT_USERNAME).</div>
+      </div>
+    </section>
+
     <section id="processing">
       <h2>Обработка</h2>
       <form id="upload-form">
         <label for="audio-file">Файл (аудио/видео/PDF/TXT/PPTX):</label>
         <input id="audio-file" name="audio-file" type="file" accept="audio/*,video/*,.pdf,.txt,.pptx" required />
-        <button type="submit">Отправить в обработку</button>
+        <button id="ingest-btn" type="submit">Отправить в обработку</button>
       </form>
 
       <h3>Статус</h3>
@@ -221,7 +247,22 @@
   </main>
 
   <script>
+    const AUTH_STORAGE_KEY = 'lectureDemoAuth';
+    const USER_STATE_STORAGE_PREFIX = 'lectureDemoUserState:';
+    const rawFetch = window.fetch.bind(window);
+
+    const authForm = document.getElementById('auth-form');
+    const authLoginInput = document.getElementById('auth-login');
+    const authPasswordInput = document.getElementById('auth-password');
+    const authLoginBtn = document.getElementById('auth-login-btn');
+    const authRegisterBtn = document.getElementById('auth-register-btn');
+    const authLogoutBtn = document.getElementById('auth-logout-btn');
+    const authStatusOutput = document.getElementById('auth-status-output');
+    const googleSigninWrap = document.getElementById('google-signin-wrap');
+    const telegramLoginWrap = document.getElementById('telegram-login-wrap');
+
     const form = document.getElementById('upload-form');
+    const ingestBtn = document.getElementById('ingest-btn');
     const fileInput = document.getElementById('audio-file');
     const statusOutput = document.getElementById('status-output');
     const errorOutput = document.getElementById('error-output');
@@ -271,6 +312,372 @@
     let voicePreviewBlobUrl = null;
     let selectedTtsVoiceId = '';
     let karaokeWords = [];
+    let refreshPromise = null;
+    let userStateSyncTimer = null;
+    let authState = {
+      accessToken: '',
+      refreshToken: '',
+      accessExp: 0,
+      login: '',
+      role: ''
+    };
+    let publicConfig = {
+      authGoogleClientId: '',
+      authTelegramBotUsername: ''
+    };
+
+    function userStateKey(login) {
+      return `${USER_STATE_STORAGE_PREFIX}${String(login || '').trim().toLowerCase()}`;
+    }
+
+    function saveUserState(state) {
+      const login = String(authState.login || '').trim().toLowerCase();
+      if (!login) return;
+      localStorage.setItem(userStateKey(login), JSON.stringify(state || {}));
+    }
+
+    function loadUserState(login) {
+      const key = userStateKey(login);
+      const raw = localStorage.getItem(key);
+      if (!raw) return null;
+      try {
+        const parsed = JSON.parse(raw);
+        return {
+          lastJobId: String(parsed.lastJobId || '').trim(),
+          assistantSessionId: String(parsed.assistantSessionId || '').trim()
+        };
+      } catch {
+        localStorage.removeItem(key);
+        return null;
+      }
+    }
+
+    async function requestServerUserState() {
+      const res = await fetch('/api/v1/auth/state');
+      if (!res.ok) {
+        return null;
+      }
+      const data = await res.json();
+      return {
+        lastJobId: String(data?.lastJobId || '').trim(),
+        assistantSessionId: String(data?.assistantSessionId || '').trim()
+      };
+    }
+
+    async function requestLatestJobId() {
+      const res = await fetch('/api/v1/jobs?limit=1');
+      if (!res.ok) return '';
+      const data = await res.json();
+      const items = Array.isArray(data?.items) ? data.items : [];
+      if (items.length === 0) return '';
+      return String(items[0]?.jobId || '').trim();
+    }
+
+    async function pushServerUserState(state) {
+      if (!isAuthenticated()) return;
+      await fetch('/api/v1/auth/state', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          lastJobId: state?.lastJobId || null,
+          assistantSessionId: state?.assistantSessionId || null
+        })
+      });
+    }
+
+    function decodeJwtPayload(token) {
+      try {
+        const encoded = String(token || '').split('.')[1] || '';
+        const base64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
+        const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+        return JSON.parse(atob(padded));
+      } catch {
+        return null;
+      }
+    }
+
+    function parseExp(token) {
+      const payload = decodeJwtPayload(token);
+      const exp = Number(payload && payload.exp ? payload.exp : 0);
+      return Number.isFinite(exp) ? exp : 0;
+    }
+
+    function isAuthenticated() {
+      return Boolean(authState.accessToken && authState.refreshToken);
+    }
+
+    function persistAuthState() {
+      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authState));
+    }
+
+    function restoreAuthState() {
+      const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+      if (!raw) return;
+      try {
+        const parsed = JSON.parse(raw);
+        authState = {
+          accessToken: String(parsed.accessToken || ''),
+          refreshToken: String(parsed.refreshToken || ''),
+          accessExp: Number(parsed.accessExp || 0),
+          login: String(parsed.login || ''),
+          role: String(parsed.role || '')
+        };
+      } catch {
+        localStorage.removeItem(AUTH_STORAGE_KEY);
+      }
+    }
+
+    function applyAuthPayload(payload) {
+      authState.accessToken = String(payload?.accessToken || '');
+      authState.refreshToken = String(payload?.refreshToken || '');
+      authState.accessExp = Math.max(parseExp(authState.accessToken), Math.floor(Date.now() / 1000) + Number(payload?.accessExpiresIn || 0));
+      const tokenPayload = decodeJwtPayload(authState.accessToken) || {};
+      authState.login = String(tokenPayload.login || '');
+      authState.role = String(tokenPayload.role || '');
+      persistAuthState();
+      updateAuthUi();
+    }
+
+    function clearAuthState() {
+      if (userStateSyncTimer) {
+        clearTimeout(userStateSyncTimer);
+        userStateSyncTimer = null;
+      }
+      authState = {
+        accessToken: '',
+        refreshToken: '',
+        accessExp: 0,
+        login: '',
+        role: ''
+      };
+      localStorage.removeItem(AUTH_STORAGE_KEY);
+      updateAuthUi();
+    }
+
+    async function completeAuthFlow(payload, statusText) {
+      applyAuthPayload(payload);
+      setStatus(statusText);
+      await loadTtsVoices();
+      await restorePreviousWorkForUser();
+    }
+
+    async function loadPublicConfig() {
+      try {
+        const res = await rawFetch('/config');
+        const data = await res.json();
+        publicConfig = {
+          authGoogleClientId: String(data?.authGoogleClientId || '').trim(),
+          authTelegramBotUsername: String(data?.authTelegramBotUsername || '').trim()
+        };
+      } catch {
+        publicConfig = {
+          authGoogleClientId: '',
+          authTelegramBotUsername: ''
+        };
+      }
+    }
+
+    async function loginWithGoogleIdToken(idToken) {
+      const res = await rawFetch('/api/v1/auth/google', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ idToken })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(formatApiError(data, 'Ошибка Google авторизации'));
+      }
+      return data;
+    }
+
+    async function loginWithTelegramPayload(payload) {
+      const res = await rawFetch('/api/v1/auth/telegram', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(formatApiError(data, 'Ошибка Telegram авторизации'));
+      }
+      return data;
+    }
+
+    function loadExternalScript(src) {
+      return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = src;
+        script.async = true;
+        script.defer = true;
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error(`Не удалось загрузить ${src}`));
+        document.head.appendChild(script);
+      });
+    }
+
+    async function initGoogleSignin() {
+      const clientId = String(publicConfig.authGoogleClientId || '').trim();
+      if (!clientId) {
+        googleSigninWrap.textContent = 'Google вход недоступен (не задан AUTH_GOOGLE_CLIENT_ID).';
+        return;
+      }
+      googleSigninWrap.textContent = 'Загрузка Google Sign-In...';
+      await loadExternalScript('https://accounts.google.com/gsi/client');
+      if (!window.google || !window.google.accounts || !window.google.accounts.id) {
+        throw new Error('Google Sign-In API не инициализирован');
+      }
+      googleSigninWrap.innerHTML = '';
+      const holder = document.createElement('div');
+      googleSigninWrap.appendChild(holder);
+      window.google.accounts.id.initialize({
+        client_id: clientId,
+        callback: async (response) => {
+          try {
+            setError('');
+            const data = await loginWithGoogleIdToken(String(response?.credential || ''));
+            await completeAuthFlow(data, 'Вход через Google выполнен');
+          } catch (error) {
+            setStatus('Ошибка');
+            setError(error instanceof Error ? error.message : String(error));
+          }
+        }
+      });
+      window.google.accounts.id.renderButton(holder, {
+        theme: 'outline',
+        size: 'large',
+        text: 'signin_with'
+      });
+    }
+
+    async function initTelegramSignin() {
+      const botUsername = String(publicConfig.authTelegramBotUsername || '').trim();
+      if (!botUsername) {
+        telegramLoginWrap.textContent = 'Telegram вход недоступен (не задан AUTH_TELEGRAM_BOT_USERNAME).';
+        return;
+      }
+      telegramLoginWrap.innerHTML = '';
+      const info = document.createElement('div');
+      info.textContent = 'Вход через Telegram:';
+      telegramLoginWrap.appendChild(info);
+      window.onTelegramAuth = async (user) => {
+        try {
+          setError('');
+          const data = await loginWithTelegramPayload(user || {});
+          await completeAuthFlow(data, 'Вход через Telegram выполнен');
+        } catch (error) {
+          setStatus('Ошибка');
+          setError(error instanceof Error ? error.message : String(error));
+        }
+      };
+      const script = document.createElement('script');
+      script.async = true;
+      script.src = 'https://telegram.org/js/telegram-widget.js?22';
+      script.setAttribute('data-telegram-login', botUsername);
+      script.setAttribute('data-size', 'large');
+      script.setAttribute('data-userpic', 'false');
+      script.setAttribute('data-onauth', 'onTelegramAuth(user)');
+      script.setAttribute('data-request-access', 'write');
+      telegramLoginWrap.appendChild(script);
+    }
+
+    function updateAuthUi() {
+      if (isAuthenticated()) {
+        authStatusOutput.textContent = `Авторизован: ${authState.login || 'user'} (${authState.role || 'role'})`;
+        authLoginBtn.disabled = false;
+        authRegisterBtn.disabled = false;
+        authLogoutBtn.disabled = false;
+        ingestBtn.disabled = false;
+        fileInput.disabled = false;
+        ttsVoiceRefreshBtn.disabled = false;
+      } else {
+        authStatusOutput.textContent = 'Не авторизован';
+        authLoginBtn.disabled = false;
+        authRegisterBtn.disabled = false;
+        authLogoutBtn.disabled = true;
+        ingestBtn.disabled = true;
+        fileInput.disabled = true;
+        ttsVoiceRefreshBtn.disabled = true;
+        setFeatureButtonsEnabled(false);
+        ttsVoiceSelect.innerHTML = '<option value="">Войдите, чтобы загрузить голоса</option>';
+        ttsVoiceSelect.disabled = true;
+      }
+    }
+
+    function shouldSkipRefresh(pathname) {
+      return pathname.startsWith('/api/v1/auth/login') ||
+        pathname.startsWith('/api/v1/auth/google') ||
+        pathname.startsWith('/api/v1/auth/telegram') ||
+        pathname.startsWith('/api/v1/auth/refresh') ||
+        pathname.startsWith('/api/v1/auth/logout');
+    }
+
+    function extractPathname(input) {
+      if (typeof input === 'string') {
+        return input;
+      }
+      if (input && typeof input.url === 'string') {
+        try {
+          const parsed = new URL(input.url, window.location.origin);
+          return parsed.pathname + parsed.search;
+        } catch {
+          return input.url;
+        }
+      }
+      return '';
+    }
+
+    async function refreshAccessToken() {
+      if (!authState.refreshToken) return false;
+      if (refreshPromise) return refreshPromise;
+      refreshPromise = (async () => {
+        const res = await rawFetch('/api/v1/auth/refresh', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ refreshToken: authState.refreshToken })
+        });
+        if (!res.ok) {
+          clearAuthState();
+          return false;
+        }
+        const data = await res.json();
+        applyAuthPayload(data);
+        return true;
+      })();
+      try {
+        return await refreshPromise;
+      } finally {
+        refreshPromise = null;
+      }
+    }
+
+    async function apiFetch(input, init = {}, retry = true) {
+      const path = extractPathname(input);
+      const headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined));
+
+      if (path.startsWith('/api/') && authState.accessToken) {
+        headers.set('authorization', `Bearer ${authState.accessToken}`);
+      }
+
+      let response = await rawFetch(input, { ...init, headers });
+
+      if (
+        response.status === 401 &&
+        retry &&
+        path.startsWith('/api/') &&
+        !shouldSkipRefresh(path) &&
+        authState.refreshToken
+      ) {
+        const refreshed = await refreshAccessToken();
+        if (refreshed && authState.accessToken) {
+          headers.set('authorization', `Bearer ${authState.accessToken}`);
+          response = await rawFetch(input, { ...init, headers });
+        }
+      }
+
+      return response;
+    }
+
+    window.fetch = apiFetch;
 
     function setStatus(text) {
       statusOutput.textContent = text;
@@ -288,6 +695,25 @@
 
     function setError(text) {
       errorOutput.textContent = text || '';
+    }
+
+    function formatApiError(data, fallbackMessage) {
+      const details = Array.isArray(data?.errors)
+        ? data.errors
+            .map((item) => {
+              const path = String(item?.path || '').trim();
+              const msg = String(item?.message || '').trim();
+              return path ? `${path}: ${msg}` : msg;
+            })
+            .filter(Boolean)
+        : [];
+      if (details.length > 0) {
+        return details.join('\n');
+      }
+      if (typeof data?.message === 'string' && data.message.trim()) {
+        return data.message;
+      }
+      return fallbackMessage;
     }
 
     function setResult(obj) {
@@ -528,6 +954,98 @@
       return `session-${Date.now()}`;
     }
 
+    function persistCurrentUserProgress() {
+      if (!isAuthenticated()) return;
+      const state = {
+        lastJobId: currentJobId || '',
+        assistantSessionId: String(assistantSessionInput.value || '').trim()
+      };
+      saveUserState(state);
+      if (userStateSyncTimer) {
+        clearTimeout(userStateSyncTimer);
+      }
+      userStateSyncTimer = setTimeout(() => {
+        pushServerUserState(state).catch(() => {});
+      }, 300);
+    }
+
+    function setFeatureButtonsEnabled(enabled) {
+      const value = Boolean(enabled);
+      flashcardsBtn.disabled = !value;
+      highlightsBtn.disabled = !value;
+      summaryBtn.disabled = !value;
+      assistantBtn.disabled = !value;
+      recapAudioBtn.disabled = !value;
+      recapKaraokeBtn.disabled = !value;
+      quizGenerateBtn.disabled = !value;
+      if (!value) {
+        quizCheckBtn.disabled = true;
+      }
+    }
+
+    async function restorePreviousWorkForUser() {
+      const login = String(authState.login || '').trim().toLowerCase();
+      if (!login) return;
+      const serverSaved = await requestServerUserState().catch(() => null);
+      const localSaved = loadUserState(login);
+      let saved = serverSaved || localSaved;
+      if (!saved) {
+        const latestJobId = await requestLatestJobId().catch(() => '');
+        if (latestJobId) {
+          saved = {
+            lastJobId: latestJobId,
+            assistantSessionId: ''
+          };
+        }
+      }
+      if (!saved) return;
+      if (serverSaved) {
+        saveUserState(serverSaved);
+      }
+
+      if (saved.assistantSessionId) {
+        assistantSessionInput.value = saved.assistantSessionId;
+      }
+      if (!saved.lastJobId) return;
+
+      try {
+        setStatus(`Восстанавливаем данные пользователя (${saved.lastJobId})...`);
+        const res = await fetch(`/api/v1/jobs/${saved.lastJobId}/result`);
+        let data = null;
+        try {
+          data = await res.json();
+        } catch {
+          data = null;
+        }
+        if (!res.ok && res.status !== 202) {
+          return;
+        }
+
+        currentJobId = saved.lastJobId;
+        persistCurrentUserProgress();
+        setFeatureButtonsEnabled(true);
+
+        if (res.status === 200 && data) {
+          setResult(data);
+          if (data.quiz) {
+            setQuiz(data.quiz);
+          }
+          await loadTranscript(saved.lastJobId);
+          await loadHighlights(saved.lastJobId);
+          await loadSummary(saved.lastJobId);
+          setStatus('Восстановлено');
+          return;
+        }
+
+        if (res.status === 202 && data) {
+          setResult(data);
+          setStatus(`В обработке... ${Number(data.progress || 0)}%`);
+        }
+      } catch {
+        // Keep demo resilient; user can start a new job manually.
+      }
+    }
+
     function setAssistant(obj) {
       if (!obj) {
         assistantOutput.textContent = 'Пока нет.';
@@ -741,10 +1259,118 @@
       });
     }
 
-    assistantSessionInput.value = createDefaultSessionId();
-    loadTtsVoices().catch((error) => {
-      setError(error instanceof Error ? error.message : String(error));
+    authForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      setError('');
+      const login = String(authLoginInput.value || '').trim();
+      const password = String(authPasswordInput.value || '');
+      if (!login || !password) {
+        setError('Введите логин и пароль');
+        return;
+      }
+      try {
+        authLoginBtn.disabled = true;
+        const res = await rawFetch('/api/v1/auth/login', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ login, password })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(formatApiError(data, 'Ошибка авторизации'));
+        }
+        await completeAuthFlow(data, 'Авторизация выполнена');
+      } catch (error) {
+        clearAuthState();
+        setStatus('Ошибка');
+        setError(error instanceof Error ? error.message : String(error));
+      } finally {
+        authLoginBtn.disabled = false;
+      }
     });
+
+    authRegisterBtn.addEventListener('click', async () => {
+      setError('');
+      const login = String(authLoginInput.value || '').trim();
+      const password = String(authPasswordInput.value || '');
+      if (!login || !password) {
+        setError('Введите логин и пароль');
+        return;
+      }
+      try {
+        authRegisterBtn.disabled = true;
+        const res = await rawFetch('/api/v1/auth/register', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ login, password })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(formatApiError(data, 'Ошибка регистрации'));
+        }
+        await completeAuthFlow(data, 'Регистрация выполнена');
+      } catch (error) {
+        setStatus('Ошибка');
+        setError(error instanceof Error ? error.message : String(error));
+      } finally {
+        authRegisterBtn.disabled = false;
+      }
+    });
+
+    authLogoutBtn.addEventListener('click', async () => {
+      setError('');
+      persistCurrentUserProgress();
+      try {
+        if (authState.refreshToken) {
+          await rawFetch('/api/v1/auth/logout', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ refreshToken: authState.refreshToken })
+          });
+        }
+      } finally {
+        clearAuthState();
+        currentJobId = null;
+        setResult(null);
+        setTranscript(null);
+        setHighlights(null);
+        setSummary(null);
+        setAssistant(null);
+        setFlashcards(null);
+        setQuiz(null);
+        setStatus('Требуется авторизация');
+      }
+    });
+
+    assistantSessionInput.value = createDefaultSessionId();
+    assistantSessionInput.addEventListener('change', () => {
+      persistCurrentUserProgress();
+    });
+    assistantSessionInput.addEventListener('input', () => {
+      persistCurrentUserProgress();
+    });
+    restoreAuthState();
+    updateAuthUi();
+    loadPublicConfig()
+      .then(() => Promise.all([initGoogleSignin(), initTelegramSignin()]))
+      .catch((error) => {
+        setError(error instanceof Error ? error.message : String(error));
+      });
+    if (isAuthenticated()) {
+      refreshAccessToken()
+        .then((ok) => {
+          if (ok) {
+            return loadTtsVoices().then(() => restorePreviousWorkForUser());
+          }
+          setStatus('Требуется авторизация');
+          return null;
+        })
+        .catch((error) => {
+          setError(error instanceof Error ? error.message : String(error));
+        });
+    } else {
+      setStatus('Требуется авторизация');
+    }
 
     async function pollUntilCompleted(jobId) {
       for (let i = 0; i < 180; i++) {
@@ -928,6 +1554,11 @@
 
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
+      if (!isAuthenticated()) {
+        setError('Сначала выполните авторизацию');
+        setStatus('Требуется авторизация');
+        return;
+      }
       setError('');
       setResult(null);
       setTranscript(null);
@@ -945,15 +1576,9 @@
       recapAudioPlayer.load();
       karaokeOutput.textContent = 'Пока нет.';
 
-      flashcardsBtn.disabled = true;
-      highlightsBtn.disabled = true;
-      summaryBtn.disabled = true;
-      assistantBtn.disabled = true;
-      recapAudioBtn.disabled = true;
-      recapKaraokeBtn.disabled = true;
-      quizGenerateBtn.disabled = true;
-      quizCheckBtn.disabled = true;
+      setFeatureButtonsEnabled(false);
       currentJobId = null;
+      persistCurrentUserProgress();
 
       const file = fileInput.files && fileInput.files[0];
       if (!file) {
@@ -984,18 +1609,15 @@
         }
 
         const jobId = ingestData.jobId;
+        currentJobId = jobId;
+        persistCurrentUserProgress();
         setStatus(`Job создан: ${jobId}`);
         const finalData = await pollUntilCompleted(jobId);
         if (!finalData) return;
 
         currentJobId = jobId;
-        flashcardsBtn.disabled = false;
-        highlightsBtn.disabled = false;
-        summaryBtn.disabled = false;
-        assistantBtn.disabled = false;
-        recapAudioBtn.disabled = false;
-        recapKaraokeBtn.disabled = false;
-        quizGenerateBtn.disabled = false;
+        persistCurrentUserProgress();
+        setFeatureButtonsEnabled(true);
         if (finalData && finalData.quiz) {
           setQuiz(finalData.quiz);
         }
@@ -1009,6 +1631,10 @@
 
     highlightsBtn.addEventListener('click', async () => {
       setError('');
+      if (!isAuthenticated()) {
+        setError('Сначала выполните авторизацию');
+        return;
+      }
       if (!currentJobId) {
         setError('Сначала загрузите и обработайте аудио');
         return;
@@ -1030,6 +1656,10 @@
 
     summaryBtn.addEventListener('click', async () => {
       setError('');
+      if (!isAuthenticated()) {
+        setError('Сначала выполните авторизацию');
+        return;
+      }
       if (!currentJobId) {
         setError('Сначала загрузите и обработайте аудио');
         return;
@@ -1052,6 +1682,10 @@
     flashcardsForm.addEventListener('submit', async (event) => {
       event.preventDefault();
       setError('');
+      if (!isAuthenticated()) {
+        setError('Сначала выполните авторизацию');
+        return;
+      }
       if (!currentJobId) {
         setError('Сначала загрузите и обработайте аудио');
         return;
@@ -1084,6 +1718,10 @@
     quizGenerateForm.addEventListener('submit', async (event) => {
       event.preventDefault();
       setError('');
+      if (!isAuthenticated()) {
+        setError('Сначала выполните авторизацию');
+        return;
+      }
       if (!currentJobId) {
         setError('Сначала загрузите и обработайте аудио');
         return;
@@ -1127,6 +1765,10 @@
     quizCheckForm.addEventListener('submit', async (event) => {
       event.preventDefault();
       setError('');
+      if (!isAuthenticated()) {
+        setError('Сначала выполните авторизацию');
+        return;
+      }
       if (!currentJobId) {
         setError('Сначала загрузите и обработайте аудио');
         return;
@@ -1186,6 +1828,10 @@
     assistantForm.addEventListener('submit', async (event) => {
       event.preventDefault();
       setError('');
+      if (!isAuthenticated()) {
+        setError('Сначала выполните авторизацию');
+        return;
+      }
       if (!currentJobId) {
         setError('Сначала загрузите и обработайте аудио');
         return;
@@ -1214,6 +1860,10 @@
 
     recapAudioBtn.addEventListener('click', async () => {
       setError('');
+      if (!isAuthenticated()) {
+        setError('Сначала выполните авторизацию');
+        return;
+      }
       if (!currentJobId) {
         setError('Сначала загрузите и обработайте аудио');
         return;
@@ -1256,6 +1906,10 @@
 
     recapKaraokeBtn.addEventListener('click', async () => {
       setError('');
+      if (!isAuthenticated()) {
+        setError('Сначала выполните авторизацию');
+        return;
+      }
       if (!currentJobId) {
         setError('Сначала загрузите и обработайте аудио');
         return;
@@ -1292,6 +1946,10 @@
 
     ttsVoiceRefreshBtn.addEventListener('click', async () => {
       setError('');
+      if (!isAuthenticated()) {
+        setError('Сначала выполните авторизацию');
+        return;
+      }
       try {
         await loadTtsVoices();
       } catch (error) {

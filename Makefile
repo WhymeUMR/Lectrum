@@ -1,7 +1,10 @@
-.PHONY: up down logs health test build lint test-unit test-integration test-e2e test-all preflight-local preflight-staging preflight-production smoke-ingestion
+.PHONY: up down logs health test build lint test-unit test-integration test-e2e test-all preflight-up preflight-local preflight-staging preflight-production smoke-ingestion
 
-up:
+up: preflight-up
 	./scripts/compose.sh local up -d --build
+
+preflight-up:
+	./scripts/preflight-up.sh
 
 down:
 	./scripts/compose.sh local down -v

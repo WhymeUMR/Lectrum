@@ -109,6 +109,8 @@ const material_quiz_service_1 = require("../services/material-quiz.service");
     mockJobStore = {
         repo: {
             getActiveJob: async () => null,
+            getActiveJobForUser: async () => null,
+            listJobsForUser: async () => [],
             createJob: async () => { },
             updateStatus: async () => { },
             saveSummary: async () => { },
@@ -241,6 +243,18 @@ const material_quiz_service_1 = require("../services/material-quiz.service");
         strict_1.default.strictEqual(res.status, 'QUEUED');
         strict_1.default.strictEqual(statusCode, 202);
         strict_1.default.strictEqual(res.progress, 5);
+    });
+    (0, node_test_1.test)('listUserJobs returns only current user jobs list', async () => {
+        mockJobStore.repo.listJobsForUser = async (ownerUserId, limit) => {
+            strict_1.default.equal(ownerUserId, 'test-user');
+            strict_1.default.equal(limit, 3);
+            return [{ jobId: 'u-job-1', ownerUserId: 'test-user', status: 'COMPLETED' }];
+        };
+        const res = await controller.listUserJobs('3');
+        strict_1.default.equal(res.count, 1);
+        strict_1.default.equal(res.limit, 3);
+        strict_1.default.equal(Array.isArray(res.items), true);
+        strict_1.default.equal(res.items[0].jobId, 'u-job-1');
     });
     (0, node_test_1.test)('getTranscriptHighlights returns ready highlights', async () => {
         const mockResponse = { status: () => mockResponse };

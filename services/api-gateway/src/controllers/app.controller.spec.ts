@@ -111,6 +111,8 @@ describe('AppController', () => {
     mockJobStore = {
         repo: {
             getActiveJob: async () => null,
+            getActiveJobForUser: async () => null,
+            listJobsForUser: async () => [],
             createJob: async () => { },
             updateStatus: async () => { },
             saveSummary: async () => { },
@@ -303,6 +305,19 @@ describe('AppController', () => {
         assert.strictEqual(res.status, 'QUEUED');
         assert.strictEqual(statusCode, 202);
         assert.strictEqual(res.progress, 5);
+    });
+
+    test('listUserJobs returns only current user jobs list', async () => {
+        mockJobStore.repo.listJobsForUser = async (ownerUserId: string, limit: number) => {
+            assert.equal(ownerUserId, 'test-user');
+            assert.equal(limit, 3);
+            return [{ jobId: 'u-job-1', ownerUserId: 'test-user', status: 'COMPLETED' }];
+        };
+        const res = await controller.listUserJobs('3');
+        assert.equal(res.count, 1);
+        assert.equal(res.limit, 3);
+        assert.equal(Array.isArray(res.items), true);
+        assert.equal(res.items[0].jobId, 'u-job-1');
     });
 
     test('getTranscriptHighlights returns ready highlights', async () => {

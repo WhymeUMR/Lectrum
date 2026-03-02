@@ -11,8 +11,11 @@ import {
   NotFoundException,
   Param,
   Post,
+  Query,
+  Req,
   Res,
   ServiceUnavailableException,
+  UnauthorizedException,
   UploadedFile,
   UseInterceptors,
   UsePipes
@@ -43,6 +46,8 @@ import {
   QuizAnswerInput,
   QuizGenerationError
 } from '../services/material-quiz.service';
+import { Public } from '../auth/public.decorator';
+import { AuthUser } from '../auth/auth.types';
 
 @Controller()
 export class AppController {
@@ -59,6 +64,7 @@ export class AppController {
   ) {}
 
   @Get('/health')
+  @Public()
   health() {
     return {
       status: 'ok',
@@ -70,6 +76,7 @@ export class AppController {
   }
 
   @Get('/ready')
+  @Public()
   ready() {
     return { status: 'ready', queues: QUEUE_NAMES };
   }
@@ -83,7 +90,12 @@ export class AppController {
     })
   )
   @UsePipes(new ZodValidationPipe(CreateIngestionRequestSchema))
-  async createIngestionJob(@Body() parsed: any, @UploadedFile() file?: { buffer: Buffer }) {
+  async createIngestionJob(
+    @Body() parsed: any,
+    @UploadedFile() file?: { buffer: Buffer },
+    @Req() request?: { user?: AuthUser }
+  ) {
+    const currentUser = this.getCurrentUser(request);
     const fileBase64 = file?.buffer?.toString('base64') ?? parsed.fileBase64;
     if (parsed.sourceType === 'upload' && !fileBase64) {
       throw new BadRequestException('file is required for upload sourceType');
@@ -95,7 +107,7 @@ export class AppController {
       this.assertSupportedUpload(parsed.filename, parsed.mimeType, fileBase64);
     }
 
-    const activeJob = await this.store.repo.getActiveJob();
+    const activeJob = await this.store.repo.getActiveJobForUser(currentUser.sub);
     if (activeJob) {
       throw new ConflictException(
         `Another lecture is still processing (jobId=${activeJob.jobId}, status=${activeJob.status}). Wait until it is COMPLETED or FAILED.`
@@ -109,6 +121,7 @@ export class AppController {
       await this.store.repo.createJob({
         jobId,
         lectureId,
+        ownerUserId: currentUser.sub,
         sourceType: parsed.sourceType,
         filename: parsed.filename,
         mimeType: parsed.mimeType,
@@ -291,20 +304,36 @@ export class AppController {
   }
 
   @Get('/api/v1/jobs/:jobId')
-  async getJob(@Param('jobId') jobId: string) {
-    const job = await this.store.repo.getJob(jobId);
-    if (!job) {
-      throw new NotFoundException(`Job ${jobId} not found`);
-    }
+  async getJob(@Param('jobId') jobId: string, @Req() request?: { user?: AuthUser }) {
+    const currentUser = this.getCurrentUser(request);
+    const job = await this.getOwnedJobOrThrow(jobId, currentUser);
     return job;
   }
 
+  @Get('/api/v1/jobs')
+  async listUserJobs(
+    @Query('limit') limitRaw?: string,
+    @Req() request?: { user?: AuthUser }
+  ) {
+    const currentUser = this.getCurrentUser(request);
+    const parsedLimit = Number(limitRaw ?? 20);
+    const limit = Number.isFinite(parsedLimit) ? Math.max(1, Math.min(100, Math.floor(parsedLimit))) : 20;
+    const items = await this.store.repo.listJobsForUser(currentUser.sub, limit);
+    return {
+      items,
+      count: items.length,
+      limit
+    };
+  }
+
   @Get('/api/v1/jobs/:jobId/result')
-  async getJobResult(@Param('jobId') jobId: string, @Res({ passthrough: true }) response: Response) {
-    const job = await this.store.repo.getJob(jobId);
-    if (!job) {
-      throw new NotFoundException(`Job ${jobId} not found`);
-    }
+  async getJobResult(
+    @Param('jobId') jobId: string,
+    @Res({ passthrough: true }) response: Response,
+    @Req() request?: { user?: AuthUser }
+  ) {
+    const currentUser = this.getCurrentUser(request);
+    const job = await this.getOwnedJobOrThrow(jobId, currentUser);
 
     if (job.status === 'FAILED') {
       response.status(HttpStatus.UNPROCESSABLE_ENTITY);
@@ -347,11 +376,13 @@ export class AppController {
   }
 
   @Get('/api/v1/jobs/:jobId/transcript')
-  async getFullTranscript(@Param('jobId') jobId: string, @Res({ passthrough: true }) response: Response) {
-    const job = await this.store.repo.getJob(jobId);
-    if (!job) {
-      throw new NotFoundException(`Job ${jobId} not found`);
-    }
+  async getFullTranscript(
+    @Param('jobId') jobId: string,
+    @Res({ passthrough: true }) response: Response,
+    @Req() request?: { user?: AuthUser }
+  ) {
+    const currentUser = this.getCurrentUser(request);
+    const job = await this.getOwnedJobOrThrow(jobId, currentUser);
     if (job.status === 'FAILED') {
       response.status(HttpStatus.UNPROCESSABLE_ENTITY);
       return {
@@ -380,9 +411,11 @@ export class AppController {
   @Post('/api/v1/jobs/:jobId/highlights')
   async generateTranscriptHighlights(
     @Param('jobId') jobId: string,
-    @Res({ passthrough: true }) response: Response
+    @Res({ passthrough: true }) response: Response,
+    @Req() request?: { user?: AuthUser }
   ) {
-    const result = await this.requestHighlightsGeneration(jobId);
+    const currentUser = this.getCurrentUser(request);
+    const result = await this.requestHighlightsGeneration(jobId, currentUser);
     response.status(HttpStatus.ACCEPTED);
     return result;
   }
@@ -390,12 +423,11 @@ export class AppController {
   @Get('/api/v1/jobs/:jobId/highlights')
   async getTranscriptHighlights(
     @Param('jobId') jobId: string,
-    @Res({ passthrough: true }) response: Response
+    @Res({ passthrough: true }) response: Response,
+    @Req() request?: { user?: AuthUser }
   ) {
-    const job = await this.store.repo.getJob(jobId);
-    if (!job) {
-      throw new NotFoundException(`Job ${jobId} not found`);
-    }
+    const currentUser = this.getCurrentUser(request);
+    const job = await this.getOwnedJobOrThrow(jobId, currentUser);
     if (job.status === 'FAILED') {
       response.status(HttpStatus.UNPROCESSABLE_ENTITY);
       return {
@@ -422,18 +454,25 @@ export class AppController {
   }
 
   @Post('/api/v1/jobs/:jobId/summary')
-  async generateLectureSummary(@Param('jobId') jobId: string, @Res({ passthrough: true }) response: Response) {
-    const result = await this.requestSummaryGeneration(jobId);
+  async generateLectureSummary(
+    @Param('jobId') jobId: string,
+    @Res({ passthrough: true }) response: Response,
+    @Req() request?: { user?: AuthUser }
+  ) {
+    const currentUser = this.getCurrentUser(request);
+    const result = await this.requestSummaryGeneration(jobId, currentUser);
     response.status(HttpStatus.ACCEPTED);
     return result;
   }
 
   @Get('/api/v1/jobs/:jobId/summary')
-  async getLectureSummary(@Param('jobId') jobId: string, @Res({ passthrough: true }) response: Response) {
-    const job = await this.store.repo.getJob(jobId);
-    if (!job) {
-      throw new NotFoundException(`Job ${jobId} not found`);
-    }
+  async getLectureSummary(
+    @Param('jobId') jobId: string,
+    @Res({ passthrough: true }) response: Response,
+    @Req() request?: { user?: AuthUser }
+  ) {
+    const currentUser = this.getCurrentUser(request);
+    const job = await this.getOwnedJobOrThrow(jobId, currentUser);
     if (job.status === 'FAILED') {
       response.status(HttpStatus.UNPROCESSABLE_ENTITY);
       return {
@@ -462,12 +501,11 @@ export class AppController {
   @Post('/api/v1/assistant/ask')
   async askMaterialAssistant(
     @Body(new ZodValidationPipe(AssistantAskRequestSchema))
-    body: { jobId: string; question: string; sessionId: string }
+    body: { jobId: string; question: string; sessionId: string },
+    @Req() request?: { user?: AuthUser }
   ) {
-    const job = await this.store.repo.getJob(body.jobId);
-    if (!job) {
-      throw new NotFoundException(`Job ${body.jobId} not found`);
-    }
+    const currentUser = this.getCurrentUser(request);
+    const job = await this.getOwnedJobOrThrow(body.jobId, currentUser);
     if (!job.transcriptText) {
       throw new ConflictException('Transcript is not ready yet');
     }
@@ -524,12 +562,11 @@ export class AppController {
   @Post('/api/v1/assistant/recap-audio')
   async generateAssistantRecapAudio(
     @Body(new ZodValidationPipe(AssistantRecapRequestSchema))
-    body: { jobId: string; sessionId: string; ttsModel?: string; ttsVoiceId?: string }
+    body: { jobId: string; sessionId: string; ttsModel?: string; ttsVoiceId?: string },
+    @Req() request?: { user?: AuthUser }
   ) {
-    const job = await this.store.repo.getJob(body.jobId);
-    if (!job) {
-      throw new NotFoundException(`Job ${body.jobId} not found`);
-    }
+    const currentUser = this.getCurrentUser(request);
+    const job = await this.getOwnedJobOrThrow(body.jobId, currentUser);
     if (!job.transcriptText) {
       throw new ConflictException('Transcript is not ready yet');
     }
@@ -583,12 +620,11 @@ export class AppController {
   @Post('/api/v1/assistant/recap')
   async generateAssistantRecapText(
     @Body(new ZodValidationPipe(AssistantRecapRequestSchema))
-    body: { jobId: string; sessionId: string }
+    body: { jobId: string; sessionId: string },
+    @Req() request?: { user?: AuthUser }
   ) {
-    const job = await this.store.repo.getJob(body.jobId);
-    if (!job) {
-      throw new NotFoundException(`Job ${body.jobId} not found`);
-    }
+    const currentUser = this.getCurrentUser(request);
+    const job = await this.getOwnedJobOrThrow(body.jobId, currentUser);
     if (!job.transcriptText) {
       throw new ConflictException('Transcript is not ready yet');
     }
@@ -619,12 +655,11 @@ export class AppController {
   async streamAssistantRecapAudio(
     @Body(new ZodValidationPipe(AssistantRecapRequestSchema))
     body: { jobId: string; sessionId: string; ttsModel?: string; ttsVoiceId?: string },
-    @Res() response: Response
+    @Res() response: Response,
+    @Req() request?: { user?: AuthUser }
   ) {
-    const job = await this.store.repo.getJob(body.jobId);
-    if (!job) {
-      throw new NotFoundException(`Job ${body.jobId} not found`);
-    }
+    const currentUser = this.getCurrentUser(request);
+    const job = await this.getOwnedJobOrThrow(body.jobId, currentUser);
     if (!job.transcriptText) {
       throw new ConflictException('Transcript is not ready yet');
     }
@@ -729,12 +764,11 @@ export class AppController {
   @Post('/api/v1/assistant/recap-audio/karaoke')
   async generateAssistantRecapAudioKaraoke(
     @Body(new ZodValidationPipe(AssistantRecapRequestSchema))
-    body: { jobId: string; sessionId: string; ttsModel?: string; ttsVoiceId?: string }
+    body: { jobId: string; sessionId: string; ttsModel?: string; ttsVoiceId?: string },
+    @Req() request?: { user?: AuthUser }
   ) {
-    const job = await this.store.repo.getJob(body.jobId);
-    if (!job) {
-      throw new NotFoundException(`Job ${body.jobId} not found`);
-    }
+    const currentUser = this.getCurrentUser(request);
+    const job = await this.getOwnedJobOrThrow(body.jobId, currentUser);
     if (!job.transcriptText) {
       throw new ConflictException('Transcript is not ready yet');
     }
@@ -782,9 +816,11 @@ export class AppController {
   async generateFlashcards(
     @Param('jobId') jobId: string,
     @Body(new ZodValidationPipe(GenerateFlashcardsRequestSchema)) body: { count: number },
-    @Res({ passthrough: true }) response: Response
+    @Res({ passthrough: true }) response: Response,
+    @Req() request?: { user?: AuthUser }
   ) {
-    const result = await this.requestFlashcardsGeneration(jobId, body.count);
+    const currentUser = this.getCurrentUser(request);
+    const result = await this.requestFlashcardsGeneration(jobId, body.count, currentUser);
     response.status(HttpStatus.ACCEPTED);
     return result;
   }
@@ -792,9 +828,11 @@ export class AppController {
   @Post('/api/v1/flashcards/generate')
   async generateFlashcardsByJobId(
     @Body(new ZodValidationPipe(GenerateFlashcardsByJobRequestSchema)) body: { jobId: string; count: number },
-    @Res({ passthrough: true }) response: Response
+    @Res({ passthrough: true }) response: Response,
+    @Req() request?: { user?: AuthUser }
   ) {
-    const result = await this.requestFlashcardsGeneration(body.jobId, body.count);
+    const currentUser = this.getCurrentUser(request);
+    const result = await this.requestFlashcardsGeneration(body.jobId, body.count, currentUser);
     response.status(HttpStatus.ACCEPTED);
     return result;
   }
@@ -802,12 +840,11 @@ export class AppController {
   @Post('/api/v1/tests/generate')
   async generateMaterialQuiz(
     @Body(new ZodValidationPipe(GenerateQuizRequestSchema))
-    body: { jobId: string; count: number; difficulty: 'easy' | 'medium' | 'hard'; language: string }
+    body: { jobId: string; count: number; difficulty: 'easy' | 'medium' | 'hard'; language: string },
+    @Req() request?: { user?: AuthUser }
   ) {
-    const job = await this.store.repo.getJob(body.jobId);
-    if (!job) {
-      throw new NotFoundException(`Job ${body.jobId} not found`);
-    }
+    const currentUser = this.getCurrentUser(request);
+    const job = await this.getOwnedJobOrThrow(body.jobId, currentUser);
     if (!job.transcriptText) {
       throw new ConflictException('Transcript is not ready yet');
     }
@@ -843,12 +880,11 @@ export class AppController {
   @Post('/api/v1/tests/check')
   async checkMaterialQuiz(
     @Body(new ZodValidationPipe(CheckQuizAnswersRequestSchema))
-    body: { jobId: string; answers: QuizAnswerInput[] }
+    body: { jobId: string; answers: QuizAnswerInput[] },
+    @Req() request?: { user?: AuthUser }
   ) {
-    const job = await this.store.repo.getJob(body.jobId);
-    if (!job) {
-      throw new NotFoundException(`Job ${body.jobId} not found`);
-    }
+    const currentUser = this.getCurrentUser(request);
+    const job = await this.getOwnedJobOrThrow(body.jobId, currentUser);
     if (!job.quizJson) {
       throw new ConflictException('Quiz is not generated yet');
     }
@@ -876,12 +912,11 @@ export class AppController {
   @Post('/api/v1/tests/stats')
   async getMaterialQuizStats(
     @Body(new ZodValidationPipe(CheckQuizAnswersRequestSchema))
-    body: { jobId: string; answers: QuizAnswerInput[] }
+    body: { jobId: string; answers: QuizAnswerInput[] },
+    @Req() request?: { user?: AuthUser }
   ) {
-    const job = await this.store.repo.getJob(body.jobId);
-    if (!job) {
-      throw new NotFoundException(`Job ${body.jobId} not found`);
-    }
+    const currentUser = this.getCurrentUser(request);
+    const job = await this.getOwnedJobOrThrow(body.jobId, currentUser);
     if (!job.quizJson) {
       throw new ConflictException('Quiz is not generated yet');
     }
@@ -906,11 +941,8 @@ export class AppController {
     };
   }
 
-  private async requestFlashcardsGeneration(jobId: string, count: number) {
-    const job = await this.store.repo.getJob(jobId);
-    if (!job) {
-      throw new NotFoundException(`Job ${jobId} not found`);
-    }
+  private async requestFlashcardsGeneration(jobId: string, count: number, currentUser: AuthUser) {
+    const job = await this.getOwnedJobOrThrow(jobId, currentUser);
     if (job.status === 'FAILED') {
       throw new ConflictException('Cannot generate flashcards for failed job');
     }
@@ -976,11 +1008,8 @@ export class AppController {
     }
   }
 
-  private async requestHighlightsGeneration(jobId: string) {
-    const job = await this.store.repo.getJob(jobId);
-    if (!job) {
-      throw new NotFoundException(`Job ${jobId} not found`);
-    }
+  private async requestHighlightsGeneration(jobId: string, currentUser: AuthUser) {
+    const job = await this.getOwnedJobOrThrow(jobId, currentUser);
     if (job.status === 'FAILED') {
       throw new ConflictException('Cannot generate highlights for failed job');
     }
@@ -1011,11 +1040,8 @@ export class AppController {
     };
   }
 
-  private async requestSummaryGeneration(jobId: string) {
-    const job = await this.store.repo.getJob(jobId);
-    if (!job) {
-      throw new NotFoundException(`Job ${jobId} not found`);
-    }
+  private async requestSummaryGeneration(jobId: string, currentUser: AuthUser) {
+    const job = await this.getOwnedJobOrThrow(jobId, currentUser);
     if (!job.transcriptText) {
       if (job.status === 'FAILED') {
         throw new ConflictException('Cannot generate summary: job failed before transcript was produced');
@@ -1072,5 +1098,38 @@ export class AppController {
     } catch {
       return null;
     }
+  }
+
+  private getCurrentUser(request?: { user?: AuthUser }): AuthUser {
+    if (request?.user) {
+      return request.user;
+    }
+    const isTestMode = process.env.NODE_ENV === 'test' || (this.env as any).APP_ENV === 'test';
+    if (!isTestMode) {
+      throw new UnauthorizedException('Authorization token is required');
+    }
+    // Test fallback for direct controller unit tests that bypass Nest guards.
+    return {
+      sub: 'test-user',
+      login: 'test',
+      role: 'admin'
+    };
+  }
+
+  private async getOwnedJobOrThrow(jobId: string, currentUser: AuthUser) {
+    const job = await this.store.repo.getJob(jobId);
+    if (!job) {
+      throw new NotFoundException(`Job ${jobId} not found`);
+    }
+    if (!job.ownerUserId) {
+      if (currentUser.role !== 'admin') {
+        throw new NotFoundException(`Job ${jobId} not found`);
+      }
+      return job;
+    }
+    if (job.ownerUserId !== currentUser.sub) {
+      throw new NotFoundException(`Job ${jobId} not found`);
+    }
+    return job;
   }
 }

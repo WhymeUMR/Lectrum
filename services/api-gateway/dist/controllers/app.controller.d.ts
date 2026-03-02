@@ -5,6 +5,7 @@ import { JobStoreService } from '../services/job-store.service';
 import { MaterialAssistantService } from '../services/material-assistant.service';
 import { AssistantTtsService } from '../services/assistant-tts.service';
 import { MaterialQuizService, QuizAnswerInput } from '../services/material-quiz.service';
+import { AuthUser } from '../auth/auth.types';
 export declare class AppController {
     private readonly env;
     private readonly queueService;
@@ -35,6 +36,8 @@ export declare class AppController {
     };
     createIngestionJob(parsed: any, file?: {
         buffer: Buffer;
+    }, request?: {
+        user?: AuthUser;
     }): Promise<{
         jobId: `${string}-${string}-${string}-${string}-${string}`;
         lectureId: `${string}-${string}-${string}-${string}-${string}`;
@@ -46,8 +49,19 @@ export declare class AppController {
     private decodeStrictBase64;
     private maxBase64Length;
     private isAudioVideoJob;
-    getJob(jobId: string): Promise<import("@lecture/pipeline").JobRecord>;
-    getJobResult(jobId: string, response: Response): Promise<{
+    getJob(jobId: string, request?: {
+        user?: AuthUser;
+    }): Promise<import("@lecture/pipeline").JobRecord>;
+    listUserJobs(limitRaw?: string, request?: {
+        user?: AuthUser;
+    }): Promise<{
+        items: import("@lecture/pipeline").JobRecord[];
+        count: number;
+        limit: number;
+    }>;
+    getJobResult(jobId: string, response: Response, request?: {
+        user?: AuthUser;
+    }): Promise<{
         jobId: string;
         status: "FAILED";
         message: string;
@@ -108,7 +122,9 @@ export declare class AppController {
         recommendedPollIntervalMs?: undefined;
         expectedMaxProcessingMs?: undefined;
     }>;
-    getFullTranscript(jobId: string, response: Response): Promise<{
+    getFullTranscript(jobId: string, response: Response, request?: {
+        user?: AuthUser;
+    }): Promise<{
         jobId: string;
         status: "FAILED";
         message: string;
@@ -133,11 +149,15 @@ export declare class AppController {
         errorCode?: undefined;
         errorMessage?: undefined;
     }>;
-    generateTranscriptHighlights(jobId: string, response: Response): Promise<{
+    generateTranscriptHighlights(jobId: string, response: Response, request?: {
+        user?: AuthUser;
+    }): Promise<{
         jobId: string;
         status: string;
     }>;
-    getTranscriptHighlights(jobId: string, response: Response): Promise<{
+    getTranscriptHighlights(jobId: string, response: Response, request?: {
+        user?: AuthUser;
+    }): Promise<{
         jobId: string;
         status: "FAILED";
         message: string;
@@ -162,11 +182,15 @@ export declare class AppController {
         errorCode?: undefined;
         errorMessage?: undefined;
     }>;
-    generateLectureSummary(jobId: string, response: Response): Promise<{
+    generateLectureSummary(jobId: string, response: Response, request?: {
+        user?: AuthUser;
+    }): Promise<{
         jobId: string;
         status: string;
     }>;
-    getLectureSummary(jobId: string, response: Response): Promise<{
+    getLectureSummary(jobId: string, response: Response, request?: {
+        user?: AuthUser;
+    }): Promise<{
         jobId: string;
         status: "FAILED";
         message: string;
@@ -195,6 +219,8 @@ export declare class AppController {
         jobId: string;
         question: string;
         sessionId: string;
+    }, request?: {
+        user?: AuthUser;
     }): Promise<{
         jobId: string;
         sessionId: string;
@@ -214,6 +240,8 @@ export declare class AppController {
         sessionId: string;
         ttsModel?: string;
         ttsVoiceId?: string;
+    }, request?: {
+        user?: AuthUser;
     }): Promise<{
         jobId: string;
         sessionId: string;
@@ -226,6 +254,8 @@ export declare class AppController {
     generateAssistantRecapText(body: {
         jobId: string;
         sessionId: string;
+    }, request?: {
+        user?: AuthUser;
     }): Promise<{
         jobId: string;
         sessionId: string;
@@ -236,7 +266,9 @@ export declare class AppController {
         sessionId: string;
         ttsModel?: string;
         ttsVoiceId?: string;
-    }, response: Response): Promise<void>;
+    }, response: Response, request?: {
+        user?: AuthUser;
+    }): Promise<void>;
     listAssistantTtsVoices(): Promise<{
         voices: import("../services/assistant-tts.service").AssistantTtsVoice[];
         defaultVoiceId: string;
@@ -252,6 +284,8 @@ export declare class AppController {
         sessionId: string;
         ttsModel?: string;
         ttsVoiceId?: string;
+    }, request?: {
+        user?: AuthUser;
     }): Promise<{
         jobId: string;
         sessionId: string;
@@ -264,7 +298,9 @@ export declare class AppController {
     }>;
     generateFlashcards(jobId: string, body: {
         count: number;
-    }, response: Response): Promise<{
+    }, response: Response, request?: {
+        user?: AuthUser;
+    }): Promise<{
         jobId: string;
         status: string;
         requestedCards: number;
@@ -272,7 +308,9 @@ export declare class AppController {
     generateFlashcardsByJobId(body: {
         jobId: string;
         count: number;
-    }, response: Response): Promise<{
+    }, response: Response, request?: {
+        user?: AuthUser;
+    }): Promise<{
         jobId: string;
         status: string;
         requestedCards: number;
@@ -282,6 +320,8 @@ export declare class AppController {
         count: number;
         difficulty: 'easy' | 'medium' | 'hard';
         language: string;
+    }, request?: {
+        user?: AuthUser;
     }): Promise<{
         jobId: string;
         quiz: import("../services/material-quiz.service").PublicQuiz;
@@ -289,6 +329,8 @@ export declare class AppController {
     checkMaterialQuiz(body: {
         jobId: string;
         answers: QuizAnswerInput[];
+    }, request?: {
+        user?: AuthUser;
     }): Promise<{
         jobId: string;
         score: {
@@ -307,6 +349,8 @@ export declare class AppController {
     getMaterialQuizStats(body: {
         jobId: string;
         answers: QuizAnswerInput[];
+    }, request?: {
+        user?: AuthUser;
     }): Promise<{
         jobId: string;
         score: {
@@ -335,4 +379,6 @@ export declare class AppController {
     private requestSummaryGeneration;
     private statusToProgress;
     private safePublicQuiz;
+    private getCurrentUser;
+    private getOwnedJobOrThrow;
 }

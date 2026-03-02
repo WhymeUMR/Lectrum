@@ -10,6 +10,7 @@ export interface AssistantSessionMessage {
 export interface CreateJobInput {
     jobId: string;
     lectureId: string;
+    ownerUserId: string;
     sourceType: SourceType;
     filename: string;
     mimeType?: string;
@@ -19,6 +20,7 @@ export interface CreateJobInput {
 export interface JobRecord {
     jobId: string;
     lectureId: string;
+    ownerUserId: string | null;
     status: JobStatus;
     sourceType: SourceType;
     filename: string;
@@ -41,6 +43,31 @@ export interface JobRecord {
     createdAt: string;
     updatedAt: string;
 }
+export interface RefreshSessionRecord {
+    jti: string;
+    userSub: string;
+    login: string;
+    role: 'admin' | 'user';
+    expiresAt: string;
+    revokedAt: string | null;
+    createdAt: string;
+}
+export interface AuthUserRecord {
+    userId: string;
+    login: string;
+    passwordHash: string;
+    provider: 'local' | 'google' | 'telegram' | null;
+    providerUserId: string | null;
+    role: 'admin' | 'user';
+    createdAt: string;
+    updatedAt: string;
+}
+export interface AuthUserStateRecord {
+    userSub: string;
+    lastJobId: string | null;
+    assistantSessionId: string | null;
+    updatedAt: string;
+}
 export declare class ActiveJobExistsError extends Error {
     constructor(message: string);
 }
@@ -52,6 +79,7 @@ export declare class PipelineRepository {
     close(): Promise<void>;
     createJob(input: CreateJobInput): Promise<void>;
     getActiveJob(): Promise<Pick<JobRecord, 'jobId' | 'status' | 'lectureId'> | null>;
+    getActiveJobForUser(ownerUserId: string): Promise<Pick<JobRecord, 'jobId' | 'status' | 'lectureId'> | null>;
     updateStatus(jobId: string, status: JobStatus): Promise<void>;
     setSourceStoragePath(jobId: string, storagePath: string): Promise<void>;
     saveTranscript(jobId: string, transcriptPath: string, transcriptText: string): Promise<void>;
@@ -65,6 +93,33 @@ export declare class PipelineRepository {
     saveHighlights(jobId: string, highlightsPath: string, highlightsJson: string): Promise<void>;
     saveQuiz(jobId: string, quizJson: string): Promise<void>;
     getJob(jobId: string): Promise<JobRecord | null>;
+    listJobsForUser(ownerUserId: string, limit?: number): Promise<JobRecord[]>;
+    createRefreshSession(input: {
+        jti: string;
+        userSub: string;
+        login: string;
+        role: 'admin' | 'user';
+        expiresAt: string;
+    }): Promise<void>;
+    getRefreshSession(jti: string): Promise<RefreshSessionRecord | null>;
+    revokeRefreshSession(jti: string): Promise<void>;
+    deleteExpiredRefreshSessions(): Promise<void>;
+    createAuthUser(input: {
+        userId: string;
+        login: string;
+        passwordHash: string;
+        provider?: 'local' | 'google' | 'telegram' | null;
+        providerUserId?: string | null;
+        role: 'admin' | 'user';
+    }): Promise<void>;
+    getAuthUserByLogin(login: string): Promise<AuthUserRecord | null>;
+    getAuthUserByProvider(provider: 'google' | 'telegram', providerUserId: string): Promise<AuthUserRecord | null>;
+    getAuthUserState(userSub: string): Promise<AuthUserStateRecord | null>;
+    upsertAuthUserState(input: {
+        userSub: string;
+        lastJobId: string | null;
+        assistantSessionId: string | null;
+    }): Promise<void>;
 }
 export declare function writeArtifact(artifactsRoot: string, relativePath: string, content: Buffer | string): Promise<string>;
 export declare function decodeBase64Payload(payload: string): Buffer;

@@ -40,6 +40,9 @@ x-common-env: &common-env
   SUMMARY_AI_TIMEOUT_MS: ${SUMMARY_AI_TIMEOUT_MS:-180000}
   DATABASE_URL: ${DATABASE_URL:-postgres://app:app@postgres:5432/lecture_flashcards}
   ARTIFACTS_DIR: ${ARTIFACTS_DIR:-/app/storage}
+  AUTH_GOOGLE_CLIENT_ID: ${AUTH_GOOGLE_CLIENT_ID:-}
+  AUTH_TELEGRAM_BOT_TOKEN: ${AUTH_TELEGRAM_BOT_TOKEN:-}
+  AUTH_TELEGRAM_BOT_USERNAME: ${AUTH_TELEGRAM_BOT_USERNAME:-}
 
 services:
   postgres:
@@ -255,6 +258,8 @@ services:
     environment:
       API_BASE_URL: http://api-gateway:3000
       PORT: 3000
+      AUTH_GOOGLE_CLIENT_ID: ${AUTH_GOOGLE_CLIENT_ID:-}
+      AUTH_TELEGRAM_BOT_USERNAME: ${AUTH_TELEGRAM_BOT_USERNAME:-}
     ports:
       - '80:3000'
     depends_on:

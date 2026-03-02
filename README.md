@@ -89,6 +89,62 @@ make up
 make health
 ```
 
+## Авторизация API (JWT)
+
+Теперь все рабочие endpoints `api-gateway` требуют Bearer JWT.
+
+Публичные endpoints:
+- `GET /health`
+- `GET /ready`
+- `POST /api/v1/auth/register`
+- `POST /api/v1/auth/login`
+- `POST /api/v1/auth/google`
+- `POST /api/v1/auth/telegram`
+- `POST /api/v1/auth/refresh`
+- `POST /api/v1/auth/logout`
+
+Защищённые endpoints:
+- все остальные `/api/v1/*` (например `POST /api/v1/lectures/ingest`, `GET /api/v1/jobs`, `GET /api/v1/jobs/:jobId/result`, assistant/tests/flashcards endpoints)
+- включая состояние пользователя:
+  - `GET /api/v1/auth/state`
+  - `POST /api/v1/auth/state`
+
+Изоляция данных:
+- Каждый `job` привязан к владельцу (`owner_user_id`).
+- Пользователь может читать/обновлять только свои `job`-ресурсы (`/jobs/:jobId/*`, assistant/tests/flashcards для своего `jobId`).
+- Даже при знании чужого `jobId` API возвращает `404`.
+
+Пример получения токена:
+
+```bash
+curl -X POST http://localhost:3100/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"login":"admin","password":"admin"}'
+```
+
+Пример вызова защищённого endpoint:
+
+```bash
+curl -X GET http://localhost:3100/api/v1/auth/me \
+  -H "Authorization: Bearer <accessToken>"
+```
+
+JWT/Auth конфиг:
+- `AUTH_JWT_ACCESS_SECRET`
+- `AUTH_JWT_REFRESH_SECRET`
+- `AUTH_JWT_ISSUER`
+- `AUTH_JWT_AUDIENCE`
+- `AUTH_ACCESS_TTL_SECONDS`
+- `AUTH_REFRESH_TTL_SECONDS`
+- `AUTH_USER_LOGIN`
+- `AUTH_USER_PASSWORD`
+- `AUTH_GOOGLE_CLIENT_ID` (optional)
+- `AUTH_TELEGRAM_BOT_TOKEN` (optional)
+- `AUTH_TELEGRAM_BOT_USERNAME` (optional)
+
+Refresh-сессии сохраняются в Postgres (`auth_refresh_sessions`), поэтому `logout`/`refresh` остаются консистентными после рестарта `api-gateway`.
+Состояние демо-пользователя (последний `jobId` и `sessionId`) также хранится в Postgres (`auth_user_state`) и восстанавливается после входа на другом устройстве.
+
 Health endpoints:
 
 - `http://localhost:3100/health`

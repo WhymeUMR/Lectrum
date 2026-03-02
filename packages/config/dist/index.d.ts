@@ -39,6 +39,17 @@ declare const EnvSchema: z.ZodObject<{
     OPENAI_MODEL: z.ZodEffects<z.ZodOptional<z.ZodString>, string | undefined, unknown>;
     OPENAI_BASE_URL: z.ZodEffects<z.ZodOptional<z.ZodString>, string | undefined, unknown>;
     SUMMARY_AI_TIMEOUT_MS: z.ZodDefault<z.ZodNumber>;
+    AUTH_JWT_ACCESS_SECRET: z.ZodDefault<z.ZodString>;
+    AUTH_JWT_REFRESH_SECRET: z.ZodDefault<z.ZodString>;
+    AUTH_JWT_ISSUER: z.ZodDefault<z.ZodString>;
+    AUTH_JWT_AUDIENCE: z.ZodDefault<z.ZodString>;
+    AUTH_ACCESS_TTL_SECONDS: z.ZodDefault<z.ZodNumber>;
+    AUTH_REFRESH_TTL_SECONDS: z.ZodDefault<z.ZodNumber>;
+    AUTH_USER_LOGIN: z.ZodDefault<z.ZodString>;
+    AUTH_USER_PASSWORD: z.ZodDefault<z.ZodString>;
+    AUTH_GOOGLE_CLIENT_ID: z.ZodEffects<z.ZodOptional<z.ZodString>, string | undefined, unknown>;
+    AUTH_TELEGRAM_BOT_TOKEN: z.ZodEffects<z.ZodOptional<z.ZodString>, string | undefined, unknown>;
+    AUTH_TELEGRAM_BOT_USERNAME: z.ZodEffects<z.ZodOptional<z.ZodString>, string | undefined, unknown>;
 }, "strip", z.ZodTypeAny, {
     APP_ENV: "local" | "staging" | "production";
     NODE_ENV: "production" | "development" | "test";
@@ -65,6 +76,14 @@ declare const EnvSchema: z.ZodObject<{
     ELEVENLABS_OUTPUT_FORMAT: string;
     ARTIFACTS_DIR: string;
     SUMMARY_AI_TIMEOUT_MS: number;
+    AUTH_JWT_ACCESS_SECRET: string;
+    AUTH_JWT_REFRESH_SECRET: string;
+    AUTH_JWT_ISSUER: string;
+    AUTH_JWT_AUDIENCE: string;
+    AUTH_ACCESS_TTL_SECONDS: number;
+    AUTH_REFRESH_TTL_SECONDS: number;
+    AUTH_USER_LOGIN: string;
+    AUTH_USER_PASSWORD: string;
     TRANSCRIPTION_OPENAI_API_KEY?: string | undefined;
     TRANSCRIPTION_OPENAI_BASE_URL?: string | undefined;
     DEEPGRAM_API_KEY?: string | undefined;
@@ -78,6 +97,9 @@ declare const EnvSchema: z.ZodObject<{
     OPENAI_FALLBACK_API_KEY?: string | undefined;
     OPENAI_MODEL?: string | undefined;
     OPENAI_BASE_URL?: string | undefined;
+    AUTH_GOOGLE_CLIENT_ID?: string | undefined;
+    AUTH_TELEGRAM_BOT_TOKEN?: string | undefined;
+    AUTH_TELEGRAM_BOT_USERNAME?: string | undefined;
 }, {
     SERVICE_NAME: string;
     REDIS_URL: string;
@@ -117,6 +139,17 @@ declare const EnvSchema: z.ZodObject<{
     OPENAI_MODEL?: unknown;
     OPENAI_BASE_URL?: unknown;
     SUMMARY_AI_TIMEOUT_MS?: number | undefined;
+    AUTH_JWT_ACCESS_SECRET?: string | undefined;
+    AUTH_JWT_REFRESH_SECRET?: string | undefined;
+    AUTH_JWT_ISSUER?: string | undefined;
+    AUTH_JWT_AUDIENCE?: string | undefined;
+    AUTH_ACCESS_TTL_SECONDS?: number | undefined;
+    AUTH_REFRESH_TTL_SECONDS?: number | undefined;
+    AUTH_USER_LOGIN?: string | undefined;
+    AUTH_USER_PASSWORD?: string | undefined;
+    AUTH_GOOGLE_CLIENT_ID?: unknown;
+    AUTH_TELEGRAM_BOT_TOKEN?: unknown;
+    AUTH_TELEGRAM_BOT_USERNAME?: unknown;
 }>;
 export type AppEnv = z.infer<typeof EnvSchema>;
 export declare const APP_ENV: unique symbol;
