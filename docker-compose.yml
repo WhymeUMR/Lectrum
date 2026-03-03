@@ -311,7 +311,7 @@ services:
   frontend-prototype:
     build:
       <<: *common-build
-      dockerfile: services/lectrum-frontend/Dockerfile
+      dockerfile: services/frontend-prototype/Dockerfile
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3100}
       PORT: 3000
