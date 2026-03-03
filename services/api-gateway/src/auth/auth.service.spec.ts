@@ -28,6 +28,8 @@ describe('AuthService', () => {
             userId: input.userId,
             login: String(input.login || '').toLowerCase(),
             passwordHash: input.passwordHash,
+            provider: input.provider ?? 'local',
+            providerUserId: input.providerUserId ?? null,
             role: input.role,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString()
@@ -43,6 +45,14 @@ describe('AuthService', () => {
             }
           }
           return null;
+        },
+        async updateAuthUserPassword(userId: string, passwordHash: string) {
+          for (const [key, value] of users.entries()) {
+            if (value.userId === userId) {
+              users.set(key, { ...value, passwordHash, updatedAt: new Date().toISOString() });
+              break;
+            }
+          }
         },
         async createRefreshSession(input: any) {
           refresh.set(input.jti, {
@@ -95,10 +105,26 @@ describe('AuthService', () => {
     const store = buildStore();
     const service = new AuthService(env, store as any);
 
-    const registered = await service.register('new.user', 'very-secure-password');
+    const registered = await service.register('new.user', 'VerySecurePassword1!');
     assert.ok(registered.accessToken.length > 20);
 
-    const logged = await service.login('new.user', 'very-secure-password');
+    const logged = await service.login('new.user', 'VerySecurePassword1!');
+    assert.ok(logged.accessToken.length > 20);
+  });
+
+  test('changePassword updates local account password', async () => {
+    const store = buildStore();
+    const service = new AuthService(env, store as any);
+
+    await service.register('pwd.user', 'StartStrong1!');
+    await service.changePassword(
+      { sub: 'unused', login: 'pwd.user', role: 'user' },
+      'StartStrong1!',
+      'NewStrongPassword2@'
+    );
+
+    await assert.rejects(() => service.login('pwd.user', 'StartStrong1!'));
+    const logged = await service.login('pwd.user', 'NewStrongPassword2@');
     assert.ok(logged.accessToken.length > 20);
   });
 

@@ -148,6 +148,22 @@ export class AuthService {
     await this.store.repo.revokeRefreshSession(claims.jti);
   }
 
+  async changePassword(user: AuthUser, currentPassword: string, newPassword: string): Promise<void> {
+    const account = await this.store.repo.getAuthUserByLogin(this.normalizeLogin(user.login));
+    if (!account) {
+      throw new UnauthorizedException('User is not found');
+    }
+    if (account.provider !== 'local') {
+      throw new BadRequestException('Password change is available only for local accounts');
+    }
+    if (!this.verifyPassword(String(currentPassword || ''), account.passwordHash)) {
+      throw new UnauthorizedException('Current password is invalid');
+    }
+
+    const normalizedNewPassword = String(newPassword || '');
+    await this.store.repo.updateAuthUserPassword(account.userId, this.hashPassword(normalizedNewPassword));
+  }
+
   verifyAccessToken(accessToken: string): AuthUser {
     const claims = this.verifyToken(accessToken, 'access');
     return {

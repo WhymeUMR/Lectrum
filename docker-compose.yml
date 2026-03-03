@@ -311,19 +311,18 @@ services:
   frontend-prototype:
     build:
       <<: *common-build
-      dockerfile: services/frontend-prototype/Dockerfile
+      dockerfile: services/lectrum-frontend/Dockerfile
     environment:
-      API_BASE_URL: http://api-gateway:3000
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3100}
       PORT: 3000
-      AUTH_GOOGLE_CLIENT_ID: ${AUTH_GOOGLE_CLIENT_ID:-}
-      AUTH_TELEGRAM_BOT_USERNAME: ${AUTH_TELEGRAM_BOT_USERNAME:-}
+      HOSTNAME: 0.0.0.0
     ports:
       - '80:3000'
     depends_on:
       api-gateway:
         condition: service_healthy
     healthcheck:
-      test: ['CMD-SHELL', "wget -qO- http://127.0.0.1:3000/health | grep -q 'ok'"]
+      test: ['CMD-SHELL', 'wget -q --spider http://127.0.0.1:3000']
       interval: 10s
       timeout: 3s
       retries: 10

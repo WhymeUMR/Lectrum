@@ -31,6 +31,7 @@ export declare class AuthService {
     }): Promise<TokenPair>;
     refresh(refreshToken: string): Promise<TokenPair>;
     logout(refreshToken: string): Promise<void>;
+    changePassword(user: AuthUser, currentPassword: string, newPassword: string): Promise<void>;
     verifyAccessToken(accessToken: string): AuthUser;
     getUserState(user: AuthUser): Promise<UserStatePayload>;
     setUserState(user: AuthUser, payload: {

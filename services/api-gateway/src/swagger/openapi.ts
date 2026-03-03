@@ -275,6 +275,14 @@ export function enhanceOpenApiDocument(document: OpenAPIObject): OpenAPIObject {
       },
       required: ['refreshToken']
     },
+    AuthChangePasswordRequest: {
+      type: 'object',
+      properties: {
+        currentPassword: { type: 'string' },
+        newPassword: { type: 'string' }
+      },
+      required: ['currentPassword', 'newPassword']
+    },
     AuthStateUpdateRequest: {
       type: 'object',
       properties: {
@@ -1075,6 +1083,38 @@ export function enhanceOpenApiDocument(document: OpenAPIObject): OpenAPIObject {
       },
       '400': { description: 'Ошибка валидации', content: { 'application/json': { schema: { $ref: '#/components/schemas/ValidationErrorResponse' } } } },
       '401': { description: 'Refresh token невалиден', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
+    }
+  });
+
+  apply('/api/v1/auth/change-password', 'post', {
+    tags: ['Auth'],
+    summary: 'Сменить пароль текущего пользователя',
+    security: [{ bearerAuth: [] }],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/AuthChangePasswordRequest' }
+        }
+      }
+    },
+    responses: {
+      '201': {
+        description: 'Пароль успешно обновлен',
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: {
+                success: { type: 'boolean', example: true }
+              },
+              required: ['success']
+            }
+          }
+        }
+      },
+      '400': { description: 'Ошибка валидации', content: { 'application/json': { schema: { $ref: '#/components/schemas/ValidationErrorResponse' } } } },
+      '401': { description: 'Текущий пароль невалиден', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
     }
   });
 

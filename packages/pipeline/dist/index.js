@@ -489,6 +489,14 @@ class PipelineRepository {
       `, [provider, providerUserId]);
         return result.rows[0] ?? null;
     }
+    async updateAuthUserPassword(userId, passwordHash) {
+        await this.pool.query(`
+      UPDATE auth_users
+      SET password_hash = $2,
+          updated_at = NOW()
+      WHERE user_id = $1
+      `, [userId, passwordHash]);
+    }
     async getAuthUserState(userSub) {
         const result = await this.pool.query(`
       SELECT

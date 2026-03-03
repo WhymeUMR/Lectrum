@@ -47,6 +47,14 @@ const auth_service_1 = require("./auth.service");
                     }
                     return null;
                 },
+                async updateAuthUserPassword(userId, passwordHash) {
+                    for (const [key, value] of users.entries()) {
+                        if (value.userId === userId) {
+                            users.set(key, { ...value, passwordHash, updatedAt: new Date().toISOString() });
+                            break;
+                        }
+                    }
+                },
                 async createRefreshSession(input) {
                     refresh.set(input.jti, {
                         jti: input.jti,
@@ -91,9 +99,18 @@ const auth_service_1 = require("./auth.service");
     (0, node_test_1.test)('register creates user and allows login', async () => {
         const store = buildStore();
         const service = new auth_service_1.AuthService(env, store);
-        const registered = await service.register('new.user', 'very-secure-password');
+        const registered = await service.register('new.user', 'VerySecurePassword1!');
         strict_1.default.ok(registered.accessToken.length > 20);
-        const logged = await service.login('new.user', 'very-secure-password');
+        const logged = await service.login('new.user', 'VerySecurePassword1!');
+        strict_1.default.ok(logged.accessToken.length > 20);
+    });
+    (0, node_test_1.test)('changePassword updates local account password', async () => {
+        const store = buildStore();
+        const service = new auth_service_1.AuthService(env, store);
+        await service.register('pwd.user', 'StartStrong1!');
+        await service.changePassword({ sub: 'unused', login: 'pwd.user', role: 'user' }, 'StartStrong1!', 'NewStrongPassword2@');
+        await strict_1.default.rejects(() => service.login('pwd.user', 'StartStrong1!'));
+        const logged = await service.login('pwd.user', 'NewStrongPassword2@');
         strict_1.default.ok(logged.accessToken.length > 20);
     });
     (0, node_test_1.test)('telegram login validates payload and reuses existing social user', async () => {

@@ -6,6 +6,7 @@ import { AuthRegisterRequestSchema } from '../dto/auth-register-request.schema';
 import { AuthUserStateUpdateRequestSchema } from '../dto/auth-user-state-update-request.schema';
 import { AuthGoogleRequestSchema } from '../dto/auth-google-request.schema';
 import { AuthTelegramRequestSchema } from '../dto/auth-telegram-request.schema';
+import { AuthChangePasswordRequestSchema } from '../dto/auth-change-password-request.schema';
 import { AuthService } from '../auth/auth.service';
 import { Public } from '../auth/public.decorator';
 import { AuthUser } from '../auth/auth.types';
@@ -74,6 +75,19 @@ export class AuthController {
     body: { refreshToken: string }
   ) {
     await this.authService.logout(body.refreshToken);
+    return { success: true };
+  }
+
+  @Post('/change-password')
+  async changePassword(
+    @Req() request: { user?: AuthUser },
+    @Body(new ZodValidationPipe(AuthChangePasswordRequestSchema))
+    body: { currentPassword: string; newPassword: string }
+  ) {
+    if (!request.user) {
+      throw new UnauthorizedException('Not authenticated');
+    }
+    await this.authService.changePassword(request.user, body.currentPassword, body.newPassword);
     return { success: true };
   }
 

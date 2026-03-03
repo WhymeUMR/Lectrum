@@ -700,6 +700,18 @@ export class PipelineRepository {
     return (result.rows[0] as AuthUserRecord | undefined) ?? null;
   }
 
+  async updateAuthUserPassword(userId: string, passwordHash: string): Promise<void> {
+    await this.pool.query(
+      `
+      UPDATE auth_users
+      SET password_hash = $2,
+          updated_at = NOW()
+      WHERE user_id = $1
+      `,
+      [userId, passwordHash]
+    );
+  }
+
   async getAuthUserState(userSub: string): Promise<AuthUserStateRecord | null> {
     const result = await this.pool.query(
       `

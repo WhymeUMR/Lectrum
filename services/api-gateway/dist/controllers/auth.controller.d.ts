@@ -61,6 +61,14 @@ export declare class AuthController {
     }): Promise<{
         success: boolean;
     }>;
+    changePassword(request: {
+        user?: AuthUser;
+    }, body: {
+        currentPassword: string;
+        newPassword: string;
+    }): Promise<{
+        success: boolean;
+    }>;
     me(request: {
         user?: AuthUser;
     }): {

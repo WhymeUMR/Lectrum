@@ -114,6 +114,7 @@ export declare class PipelineRepository {
     }): Promise<void>;
     getAuthUserByLogin(login: string): Promise<AuthUserRecord | null>;
     getAuthUserByProvider(provider: 'google' | 'telegram', providerUserId: string): Promise<AuthUserRecord | null>;
+    updateAuthUserPassword(userId: string, passwordHash: string): Promise<void>;
     getAuthUserState(userSub: string): Promise<AuthUserStateRecord | null>;
     upsertAuthUserState(input: {
         userSub: string;
