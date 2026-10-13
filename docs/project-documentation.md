@@ -17,7 +17,7 @@ Lectrum — это микросервисная платформа, котора
 - Очереди и фоновые задачи: BullMQ + Redis
 - База данных: PostgreSQL
 - Вспомогательные парсеры: Python-сервисы (URL и video parsing)
-- Frontend: Next.js (`services/lectrum-frontend`) и прототипный frontend (`services/frontend-prototype`)
+- Frontend: веб-клиент `services/frontend-prototype`
 - Инфраструктура локального запуска: Docker Compose
 
 ## 3. Архитектура сервисов
