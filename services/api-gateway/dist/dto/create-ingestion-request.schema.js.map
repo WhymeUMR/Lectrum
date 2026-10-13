@@ -1,1 +1,0 @@
-{"version":3,"file":"create-ingestion-request.schema.js","sourceRoot":"","sources":["../../src/dto/create-ingestion-request.schema.ts"],"names":[],"mappings":";;;AAAA,kDAAwD;AAE3C,QAAA,4BAA4B,GAAG,8BAAkB,CAAC,IAAI,CAAC;IAClE,UAAU,EAAE,IAAI;IAChB,SAAS,EAAE,IAAI;IACf,QAAQ,EAAE,IAAI;IACd,QAAQ,EAAE,IAAI;IACd,iBAAiB,EAAE,IAAI;IACvB,UAAU,EAAE,IAAI;CACjB,CAAC,CAAC"}
