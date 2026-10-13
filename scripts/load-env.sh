@@ -23,3 +23,11 @@ source "$env_file"
 set +a
 
 export APP_ENV="${APP_ENV:-$profile}"
+
+# Personal secrets (API keys) live in the git-ignored .env and override the profile file.
+if [ -f .env ]; then
+  set -a
+  # shellcheck source=/dev/null
+  source .env
+  set +a
+fi
