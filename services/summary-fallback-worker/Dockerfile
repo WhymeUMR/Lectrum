@@ -20,6 +20,7 @@ RUN npm config set fetch-retries 5 \
   done
 RUN npm run build --workspace @lecture/contracts
 RUN npm run build --workspace @lecture/config
+RUN npm run build --workspace @lecture/pipeline
 RUN npm run build --workspace @lecture/${SERVICE_PATH##services/}
 
 FROM node:20-alpine AS runtime
