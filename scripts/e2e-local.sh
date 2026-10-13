@@ -22,9 +22,20 @@ done
 
 ./scripts/healthcheck.sh
 
+echo "[e2e] registering test user..."
+e2e_login="e2e-$(date +%s)"
+token=$(curl -sS -X POST "http://localhost:3100/api/v1/auth/register" \
+  -H 'content-type: application/json' \
+  -d "{\"login\":\"${e2e_login}\",\"password\":\"E2e-password-123!\"}" | jq -r '.accessToken')
+if [ -z "$token" ] || [ "$token" = "null" ]; then
+  echo "[e2e] failed to get access token" >&2
+  exit 1
+fi
+auth=(-H "authorization: Bearer ${token}")
+
 echo "[e2e] creating ingestion job..."
 payload=$(printf 'fake-audio-content' | base64 | tr -d '\n')
-first_resp=$(curl -sS -X POST "http://localhost:3100/api/v1/lectures/ingest" \
+first_resp=$(curl -sS "${auth[@]}" -X POST "http://localhost:3100/api/v1/lectures/ingest" \
   -H 'content-type: application/json' \
   -d "{\"sourceType\":\"upload\",\"filename\":\"e2e-first.mp3\",\"mimeType\":\"audio/mpeg\",\"requestedLanguage\":\"ru\",\"fileBase64\":\"${payload}\"}")
 first_job_id=$(echo "$first_resp" | jq -r '.jobId')
@@ -36,7 +47,7 @@ fi
 echo "[e2e] first job created: $first_job_id"
 
 echo "[e2e] verifying second ingestion is blocked..."
-second_status=$(curl -sS -o /tmp/e2e-second.json -w "%{http_code}" -X POST "http://localhost:3100/api/v1/lectures/ingest" \
+second_status=$(curl -sS "${auth[@]}" -o /tmp/e2e-second.json -w "%{http_code}" -X POST "http://localhost:3100/api/v1/lectures/ingest" \
   -H 'content-type: application/json' \
   -d "{\"sourceType\":\"upload\",\"filename\":\"e2e-second.mp3\",\"mimeType\":\"audio/mpeg\",\"requestedLanguage\":\"ru\",\"fileBase64\":\"${payload}\"}")
 if [ "$second_status" != "409" ]; then
@@ -49,7 +60,7 @@ cat /tmp/e2e-second.json
 echo "[e2e] waiting for first job completion..."
 status="QUEUED"
 for i in $(seq 1 30); do
-  status=$(curl -sS "http://localhost:3100/api/v1/jobs/${first_job_id}" | jq -r '.status')
+  status=$(curl -sS "${auth[@]}" "http://localhost:3100/api/v1/jobs/${first_job_id}" | jq -r '.status')
   echo "poll[$i]: ${status}"
   if [ "$status" = "COMPLETED" ] || [ "$status" = "FAILED" ]; then
     break
@@ -58,16 +69,16 @@ for i in $(seq 1 30); do
 done
 if [ "$status" != "COMPLETED" ]; then
   echo "[e2e] first job did not complete successfully: ${status}" >&2
-  curl -sS "http://localhost:3100/api/v1/jobs/${first_job_id}" | jq >&2
+  curl -sS "${auth[@]}" "http://localhost:3100/api/v1/jobs/${first_job_id}" | jq >&2
   exit 1
 fi
 
 echo "[e2e] fetching result..."
-result=$(curl -sS "http://localhost:3100/api/v1/jobs/${first_job_id}/result")
+result=$(curl -sS "${auth[@]}" "http://localhost:3100/api/v1/jobs/${first_job_id}/result")
 echo "$result" | jq
 
 echo "[e2e] requesting flashcards generation..."
-flash_req_status=$(curl -sS -o /tmp/e2e-flashcards-start.json -w "%{http_code}" -X POST \
+flash_req_status=$(curl -sS "${auth[@]}" -o /tmp/e2e-flashcards-start.json -w "%{http_code}" -X POST \
   "http://localhost:3100/api/v1/jobs/${first_job_id}/flashcards" \
   -H 'content-type: application/json' \
   -d '{"count":3}')
@@ -79,7 +90,7 @@ fi
 
 echo "[e2e] waiting for flashcards completion..."
 for i in $(seq 1 120); do
-  result=$(curl -sS "http://localhost:3100/api/v1/jobs/${first_job_id}/result")
+  result=$(curl -sS "${auth[@]}" "http://localhost:3100/api/v1/jobs/${first_job_id}/result")
   status=$(echo "$result" | jq -r '.status')
   echo "flashcards poll[$i]: ${status}"
   if [ "$status" = "COMPLETED" ] || [ "$status" = "FAILED" ]; then
