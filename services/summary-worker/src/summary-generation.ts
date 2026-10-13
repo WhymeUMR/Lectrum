@@ -328,7 +328,7 @@ function buildTakeaways(sentences: string[]): string[] {
 }
 
 function extractConcepts(sentences: string[]): string[] {
-  const words = (sentences.join(' ').match(/[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\-]{4,}/g) ?? []);
+  const words = (sentences.join(' ').match(/[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё-]{4,}/g) ?? []);
   const out: string[] = [];
   for (const w of words) {
     if (!out.includes(w)) out.push(w);

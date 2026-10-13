@@ -92,7 +92,7 @@ export class MaterialAssistantService {
       targetLanguage === 'ru'
         ? 'Пиши только по-русски.'
         : 'Write only in English.';
-    let recapText = '';
+    let recapText: string;
     try {
       recapText = await this.requestRetell({
         targetLanguage,
@@ -704,7 +704,6 @@ function composeRetellFromSlots(input: {
   const solution = String(input.solution ?? '').trim();
   const painScale = String(input.painScale ?? '').trim();
   const changelog = String(input.changelog ?? '').trim();
-  const evolutionVector = String(input.evolutionVector ?? '').trim();
   const causeEffect = String(input.causeEffect ?? '').trim();
   const easterEgg = String(input.easterEgg ?? '').trim();
   const final = String(input.final ?? '').trim();
@@ -722,7 +721,7 @@ function composeRetellFromSlots(input: {
     const merged = richParts
       .filter(Boolean)
       .join(' ')
-      .replace(/\s*[→\-]{1,2}>\s*/g, ', затем ')
+      .replace(/\s*[→-]{1,2}>\s*/g, ', затем ')
       .replace(/\s*→\s*/g, ', затем ');
     return compactRetellText(merged, 980);
   }
@@ -1146,19 +1145,6 @@ function rankChunks(question: string, chunks: MaterialChunk[]): MaterialChunk[] 
 function isFactualQuestion(question: string): boolean {
   const q = String(question || '').toLowerCase();
   return /^(кто|что|какой|какая|какие|в чем|в чём|о чем|о чём|как|когда|где|о каких|назовите|перечислите)\b/.test(q);
-}
-
-function isAnswerGrounded(answer: string, topChunks: MaterialChunk[]): boolean {
-  const context = topChunks.map((chunk) => chunk.text).join(' ').toLowerCase();
-  if (!context.trim()) return false;
-
-  const answerTokens = meaningfulTokens(answer).map(normalizeToken);
-  if (answerTokens.length === 0) return false;
-  const contextTokens = new Set(meaningfulTokens(context).map(normalizeToken));
-  const overlap = answerTokens.filter((token) => hasFuzzyTokenMatch(token, contextTokens)).length;
-  const ratio = overlap / Math.max(1, Math.min(answerTokens.length, 24));
-
-  return ratio >= 0.35;
 }
 
 function normalizeCitations(

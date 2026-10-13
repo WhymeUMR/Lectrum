@@ -101,6 +101,7 @@ async function extractPptxText(payload: Buffer): Promise<string> {
 }
 
 function normalizeText(text: string): string {
+  // eslint-disable-next-line no-control-regex -- strip NUL bytes left by PDF/DOCX extraction
   return text.replace(/\u0000/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
